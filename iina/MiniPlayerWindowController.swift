@@ -114,7 +114,23 @@ class MiniPlayerWindowController: PlayerWindowController, NSPopoverDelegate {
     // default album art
     defaultAlbumArt.isHidden = false
     defaultAlbumArt.wantsLayer = true
-    defaultAlbumArt.layer?.contents = #imageLiteral(resourceName: "default-album-art")
+    defaultAlbumArt.layer?.backgroundColor = NSColor(calibratedRed: 0.055,
+                                                     green: 0.063,
+                                                     blue: 0.078,
+                                                     alpha: 1).cgColor
+    let defaultAlbumArtImageView = NSImageView(image: NSApp.applicationIconImage)
+    defaultAlbumArtImageView.imageScaling = .scaleProportionallyDown
+    defaultAlbumArtImageView.translatesAutoresizingMaskIntoConstraints = false
+    defaultAlbumArtImageView.setAccessibilityElement(false)
+    defaultAlbumArt.addSubview(defaultAlbumArtImageView)
+    NSLayoutConstraint.activate([
+      defaultAlbumArtImageView.centerXAnchor.constraint(equalTo: defaultAlbumArt.centerXAnchor),
+      defaultAlbumArtImageView.centerYAnchor.constraint(equalTo: defaultAlbumArt.centerYAnchor),
+      defaultAlbumArtImageView.widthAnchor.constraint(equalTo: defaultAlbumArt.widthAnchor, multiplier: 0.42),
+      defaultAlbumArtImageView.heightAnchor.constraint(equalTo: defaultAlbumArtImageView.widthAnchor),
+      defaultAlbumArtImageView.heightAnchor.constraint(lessThanOrEqualTo: defaultAlbumArt.heightAnchor,
+                                                       multiplier: 0.52)
+    ])
 
     // close button
     closeButtonVE.action = #selector(self.close)

@@ -135,6 +135,77 @@ final class TestTranscriber: AISubtitleTranscriber {
   }
 }
 
+final class BoundaryRevisionTestTranscriber: AISubtitleTranscriber {
+  let providerID = AISubtitleProviderID.apple
+  let modelIdentifier = "boundary-revision-self-test"
+
+  func capability(for request: AISubtitleProviderRequest) -> AISubtitleProviderCapability {
+    AISubtitleProviderCapability(providerID: .apple,
+                                 role: .transcriber,
+                                 status: .available,
+                                 supportsCloudProcessing: false)
+  }
+
+  func transcribe(_ chunk: AISubtitleAudioChunk,
+                  request: AISubtitleProviderRequest,
+                  completion: @escaping (Result<[AISubtitleSegment], AISubtitleError>) -> Void) {
+    if chunk.timeRange.start == 0 {
+      completion(.success([
+        AISubtitleSegment(id: "boundary-first",
+                          timeRange: AISubtitleTimeRange(start: 58.2, end: 59.998875),
+                          text: "And that's gonna cause damage!",
+                          language: request.sourceLanguage)
+      ]))
+    } else {
+      completion(.success([
+        AISubtitleSegment(id: "boundary-revision",
+                          timeRange: AISubtitleTimeRange(start: 58.5, end: 60.12),
+                          text: "That's gonna cause damage!",
+                          language: request.sourceLanguage)
+      ]))
+    }
+  }
+}
+
+final class EmptyTestTranscriber: AISubtitleTranscriber {
+  let providerID = AISubtitleProviderID.apple
+  let modelIdentifier = "empty-self-test"
+
+  func capability(for request: AISubtitleProviderRequest) -> AISubtitleProviderCapability {
+    AISubtitleProviderCapability(providerID: .apple,
+                                 role: .transcriber,
+                                 status: .available,
+                                 supportsCloudProcessing: false)
+  }
+
+  func transcribe(_ chunk: AISubtitleAudioChunk,
+                  request: AISubtitleProviderRequest,
+                  completion: @escaping (Result<[AISubtitleSegment], AISubtitleError>) -> Void) {
+    completion(.success([]))
+  }
+}
+
+final class RejectingTestTranslator: AISubtitleTranslator {
+  let providerID = AISubtitleProviderID.apple
+  let modelIdentifier = "rejecting-self-test"
+  private(set) var wasCalled = false
+
+  func capability(for request: AISubtitleProviderRequest) -> AISubtitleProviderCapability {
+    AISubtitleProviderCapability(providerID: .apple,
+                                 role: .translator,
+                                 status: .available,
+                                 supportsCloudProcessing: false)
+  }
+
+  func translate(_ segments: [AISubtitleSegment],
+                 request: AISubtitleProviderRequest,
+                 completion: @escaping (Result<[AISubtitleCue], AISubtitleError>) -> Void) {
+    wasCalled = true
+    completion(.failure(AISubtitleError(code: "unexpected_translation",
+                                        message: "Empty transcripts must not be translated.")))
+  }
+}
+
 struct TestAPIKeys: AISubtitleAPIKeyProviding {
   var values: [AISubtitleProviderID: String]
   func apiKey(for providerID: AISubtitleProviderID) -> String? { values[providerID] }

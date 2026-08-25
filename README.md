@@ -8,8 +8,8 @@
 
 <p align="center">
   <a href="https://rawya.app">官网（建设中）</a> ·
-  <a href="https://github.com/wintion/video-player/releases">下载</a> ·
-  <a href="https://github.com/wintion/video-player/issues">问题反馈</a>
+  <a href="https://github.com/rawya-ai-player/client-macos/releases">下载</a> ·
+  <a href="https://github.com/rawya-ai-player/client-macos/issues">问题反馈</a>
 </p>
 
 ## 简介
@@ -35,7 +35,7 @@ Rawya 专注于 macOS 本地媒体播放体验，提供清晰易用的操作界�
 
 ## 下载
 
-正式发布版本请前往 [Releases](https://github.com/wintion/video-player/releases) 页面下载。
+正式发布版本请前往 [Releases](https://github.com/rawya-ai-player/client-macos/releases) 页面下载。
 
 开发构建仅用于本地测试，不建议直接作为正式分发版本。
 

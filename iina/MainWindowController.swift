@@ -54,6 +54,64 @@ fileprivate extension NSStackView.VisibilityPriority {
 // The minimum distance that the user must drag before their click or tap gesture is interpreted as a drag gesture:
 fileprivate let minimumInitialDragDistance: CGFloat = 3.0
 
+private final class AISubtitleProgressRingView: NSView {
+  var fractionCompleted: Double? {
+    didSet { needsDisplay = true }
+  }
+
+  override var intrinsicContentSize: NSSize { NSSize(width: 50, height: 50) }
+
+  override func draw(_ dirtyRect: NSRect) {
+    super.draw(dirtyRect)
+    let ringRect = bounds.insetBy(dx: 5, dy: 5)
+    let center = NSPoint(x: ringRect.midX, y: ringRect.midY)
+    let radius = min(ringRect.width, ringRect.height) / 2
+    let lineWidth: CGFloat = 3
+
+    let backgroundRing = NSBezierPath()
+    backgroundRing.appendArc(withCenter: center,
+                             radius: radius,
+                             startAngle: 90,
+                             endAngle: -270,
+                             clockwise: true)
+    backgroundRing.lineWidth = lineWidth
+    backgroundRing.lineCapStyle = .round
+    NSColor.white.withAlphaComponent(0.3).setStroke()
+    backgroundRing.stroke()
+
+    if let fractionCompleted {
+      let progress = min(max(fractionCompleted, 0), 1)
+      if progress > 0 {
+        let progressRing = NSBezierPath()
+        progressRing.appendArc(withCenter: center,
+                               radius: radius,
+                               startAngle: 90,
+                               endAngle: 90 - 360 * CGFloat(progress),
+                               clockwise: true)
+        progressRing.lineWidth = lineWidth
+        progressRing.lineCapStyle = .round
+        NSColor.controlAccentColor.setStroke()
+        progressRing.stroke()
+      }
+    }
+
+    let text = fractionCompleted.map { "\(Int((min(max($0, 0), 1) * 100).rounded()))%" } ?? "AI"
+    let paragraphStyle = NSMutableParagraphStyle()
+    paragraphStyle.alignment = .center
+    let attributes: [NSAttributedString.Key: Any] = [
+      .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .bold),
+      .foregroundColor: NSColor.white,
+      .paragraphStyle: paragraphStyle
+    ]
+    let textSize = text.size(withAttributes: attributes)
+    text.draw(in: NSRect(x: bounds.minX,
+                         y: bounds.midY - textSize.height / 2,
+                         width: bounds.width,
+                         height: textSize.height),
+              withAttributes: attributes)
+  }
+}
+
 class MainWindowController: PlayerWindowController {
 
   override var windowNibName: NSNib.Name {
@@ -84,6 +142,10 @@ class MainWindowController: PlayerWindowController {
   }
 
   lazy private var _videoView: VideoView = VideoView(frame: window!.contentView!.bounds, player: player)
+
+  private let aiSubtitleProgressHUD = NSVisualEffectView()
+  private let aiSubtitleProgressHUDRing = AISubtitleProgressRingView()
+  private var aiSubtitleProgressHUDHideWorkItem: DispatchWorkItem?
 
   /** The quick setting sidebar (video, audio, subtitles). */
   lazy var quickSettingView: QuickSettingViewController = {
@@ -582,6 +644,7 @@ class MainWindowController: PlayerWindowController {
     guard let cv = window.contentView else { return }
     cv.autoresizesSubviews = false
     addVideoViewToWindow()
+    setupAISubtitleProgressHUD(in: cv)
 
     // gesture recognizer
     cv.addGestureRecognizer(magnificationGestureRecognizer)
@@ -640,6 +703,10 @@ class MainWindowController: PlayerWindowController {
 
     addObserver(to: .default, forName: .iinaFileLoaded, object: player) { [unowned self] _ in
       self.quickSettingView.reload()
+    }
+
+    addObserver(to: .default, forName: .iinaAISubtitleStateDidChange, object: player) { [weak self] _ in
+      self?.updateAISubtitleProgressHUD()
     }
 
     addObserver(to: .default, forName: NSApplication.didChangeScreenParametersNotification) { [unowned self] _ in
@@ -704,6 +771,80 @@ class MainWindowController: PlayerWindowController {
     // If a video is not actively playing then the initial drawing of the view needs to be forced.
     // The forceDraw method will check to see if drawing is actually needed.
     forceDraw("window loaded")
+  }
+
+  private func setupAISubtitleProgressHUD(in contentView: NSView) {
+    aiSubtitleProgressHUD.appearance = NSAppearance(named: .vibrantDark)
+    aiSubtitleProgressHUD.material = .hudWindow
+    aiSubtitleProgressHUD.blendingMode = .withinWindow
+    aiSubtitleProgressHUD.state = .active
+    aiSubtitleProgressHUD.alphaValue = 0.82
+    aiSubtitleProgressHUD.wantsLayer = true
+    aiSubtitleProgressHUD.layer?.cornerRadius = 30
+    aiSubtitleProgressHUD.translatesAutoresizingMaskIntoConstraints = false
+    aiSubtitleProgressHUD.isHidden = true
+    aiSubtitleProgressHUD.setAccessibilityLabel(aiSubtitleLocalized("ai_subtitle.title",
+                                                                    fallback: "AI Subtitles"))
+    aiSubtitleProgressHUD.toolTip = aiSubtitleLocalized("ai_subtitle.title",
+                                                       fallback: "AI Subtitles")
+    aiSubtitleProgressHUD.addGestureRecognizer(NSClickGestureRecognizer(target: self,
+                                                                        action: #selector(openAISubtitleProgress(_:))))
+
+    aiSubtitleProgressHUDRing.translatesAutoresizingMaskIntoConstraints = false
+    aiSubtitleProgressHUD.addSubview(aiSubtitleProgressHUDRing)
+
+    contentView.addSubview(aiSubtitleProgressHUD, positioned: .above, relativeTo: nil)
+    let preferredTrailingConstraint = aiSubtitleProgressHUD.trailingAnchor
+      .constraint(equalTo: contentView.trailingAnchor, constant: -16)
+    preferredTrailingConstraint.priority = .defaultHigh
+    NSLayoutConstraint.activate([
+      aiSubtitleProgressHUD.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 46),
+      preferredTrailingConstraint,
+      aiSubtitleProgressHUD.trailingAnchor.constraint(lessThanOrEqualTo: sideBarView.leadingAnchor,
+                                                       constant: -12),
+      aiSubtitleProgressHUD.leadingAnchor.constraint(greaterThanOrEqualTo: contentView.leadingAnchor,
+                                                      constant: 16),
+      aiSubtitleProgressHUD.widthAnchor.constraint(equalToConstant: 60),
+      aiSubtitleProgressHUD.heightAnchor.constraint(equalToConstant: 60),
+      aiSubtitleProgressHUDRing.centerXAnchor.constraint(equalTo: aiSubtitleProgressHUD.centerXAnchor),
+      aiSubtitleProgressHUDRing.centerYAnchor.constraint(equalTo: aiSubtitleProgressHUD.centerYAnchor),
+      aiSubtitleProgressHUDRing.widthAnchor.constraint(equalToConstant: 50),
+      aiSubtitleProgressHUDRing.heightAnchor.constraint(equalToConstant: 50)
+    ])
+  }
+
+  private func updateAISubtitleProgressHUD() {
+    aiSubtitleProgressHUDHideWorkItem?.cancel()
+    let state = player.aiSubtitleState
+    let running = ![.idle, .completed, .failed, .canceled, .maintaining].contains(state.phase)
+    guard running || state.phase == .completed else {
+      aiSubtitleProgressHUD.isHidden = true
+      return
+    }
+
+    let progress = state.phase == .completed ? 1 : state.progress
+    aiSubtitleProgressHUDRing.fractionCompleted = progress
+    if state.phase == .completed {
+      aiSubtitleProgressHUD.setAccessibilityValue("100%")
+    } else if state.progress == nil {
+      aiSubtitleProgressHUD.setAccessibilityValue(aiSubtitleLocalized("ai_subtitle.generating",
+                                                                      fallback: "Generating AI subtitles…"))
+    } else {
+      aiSubtitleProgressHUD.setAccessibilityValue("\(Int((state.progress! * 100).rounded()))%")
+    }
+    aiSubtitleProgressHUD.isHidden = false
+
+    if state.phase == .completed {
+      let workItem = DispatchWorkItem { [weak self] in
+        self?.aiSubtitleProgressHUD.isHidden = true
+      }
+      aiSubtitleProgressHUDHideWorkItem = workItem
+      DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: workItem)
+    }
+  }
+
+  @objc private func openAISubtitleProgress(_ sender: NSClickGestureRecognizer) {
+    showSettingsSidebar(tab: .aiSubtitle, force: true, hideIfAlreadyShown: false)
   }
 
   /// Returns the position in seconds for the given percent of the total duration of the video the percentage represents.

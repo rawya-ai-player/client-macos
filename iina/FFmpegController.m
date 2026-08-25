@@ -32,7 +32,7 @@
 #define THUMB_COUNT_DEFAULT 100
 #define AI_SUBTITLE_SAMPLE_RATE 16000
 
-static NSString * const FFmpegAudioErrorDomain = @"com.wintion.rawya.ffmpeg-audio";
+static NSString * const FFmpegAudioErrorDomain = @"app.rawya.player.ffmpeg-audio";
 
 typedef NS_ENUM(NSInteger, FFmpegAudioErrorCode) {
   FFmpegAudioErrorInvalidRange = 1,

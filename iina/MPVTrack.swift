@@ -75,7 +75,14 @@ class MPVTrack: NSObject {
   var idString: String { "#\(id)" }
 
   var infoString: String {
-    get {
+    formattedInfoString(includeCodec: true)
+  }
+
+  var subtitleListInfoString: String {
+    formattedInfoString(includeCodec: false)
+  }
+
+  private func formattedInfoString(includeCodec: Bool) -> String {
       // title
       let title = title ?? ""
       // lang
@@ -87,7 +94,7 @@ class MPVTrack: NSObject {
       }
       // info
       var components: [String] = []
-      if let codec {
+      if includeCodec, let codec {
         components.append(codec)
       }
       switch type {
@@ -113,8 +120,6 @@ class MPVTrack: NSObject {
       let isDefault = isDefault ? "(" + NSLocalizedString("quicksetting.item_default", comment: "Default") + ")" : ""
       // final string
       return [language, title, info, isDefault].filter { !$0.isEmpty }.joined(separator: " ")
-    }
-
   }
 
   var isAlbumart: Bool = false

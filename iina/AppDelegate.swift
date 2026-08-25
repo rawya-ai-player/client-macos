@@ -80,6 +80,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
       PrefUIViewController(),
       PrefCodecViewController(),
       PrefSubViewController(),
+      PrefAISubtitleViewController(),
       PrefNetworkViewController(),
       PrefControlViewController(),
       PrefKeyBindingViewController(),

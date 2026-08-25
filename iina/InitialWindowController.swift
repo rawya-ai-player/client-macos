@@ -75,6 +75,7 @@ class InitialWindowController: NSWindowController {
 
   private let observedPrefKeys: [Preference.Key] = [.themeMaterial]
   private var currentlyHoveredRow: GrayHighlightRowView?
+  private var didAttemptAISubtitleOnboarding = false
 
   override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey : Any]?, context: UnsafeMutableRawPointer?) {
     guard let keyPath = keyPath, let change = change else { return }
@@ -123,6 +124,10 @@ class InitialWindowController: NSWindowController {
     window?.isMovableByWindowBackground = true
 
     window?.contentView?.registerForDraggedTypes([.nsFilenames, .nsURL, .string])
+    NotificationCenter.default.addObserver(self,
+                                           selector: #selector(initialWindowDidBecomeKey(_:)),
+                                           name: NSWindow.didBecomeKeyNotification,
+                                           object: window)
 
     mainView.wantsLayer = true
 
@@ -145,7 +150,7 @@ class InitialWindowController: NSWindowController {
       betaIndicatorView.isHidden = false
     }
 
-    addLocalizedBrandSubtitle(infoDict.localizedBrandSubtitle)
+    applyLocalizedBrandName(infoDict.localizedBrandSubtitle)
 
     loadLastPlaybackInfo()
 
@@ -163,33 +168,52 @@ class InitialWindowController: NSWindowController {
       UserDefaults.standard.addObserver(self, forKeyPath: key.rawValue, options: .new, context: nil)
     }
     reloadData()
+    presentAISubtitleOnboardingIfNeeded()
+
   }
 
-  private func addLocalizedBrandSubtitle(_ subtitle: String?) {
-    guard let subtitle,
-          let container = appNameLabel.superview,
-          versionLabel.superview === container,
-          let versionTopConstraint = container.constraints.first(where: {
-            $0.firstItem === versionLabel &&
-              $0.secondItem === appNameLabel &&
-              $0.firstAttribute == .top &&
-              $0.secondAttribute == .bottom
-          }) else { return }
+  func presentAISubtitleOnboardingIfNeeded() {
+    guard !didAttemptAISubtitleOnboarding,
+          !AISubtitleInitializationState().isComplete else { return }
+    didAttemptAISubtitleOnboarding = true
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+      guard let self = self,
+            let window = self.window,
+            window.isVisible else { return }
+      let alert = NSAlert()
+      alert.alertStyle = .informational
+      alert.icon = NSApplication.shared.applicationIconImage
+      alert.messageText = aiSubtitleLocalized(
+        "ai_subtitle.onboarding_prompt_title",
+        fallback: "Rawya supports AI subtitles"
+      )
+      alert.informativeText = aiSubtitleLocalized(
+        "ai_subtitle.onboarding_prompt_message",
+        fallback: "Set up local or remote AI once, then Rawya can generate subtitles while your video keeps playing."
+      )
+      alert.addButton(withTitle: aiSubtitleLocalized("ai_subtitle.start_setup",
+                                                     fallback: "Start Setup"))
+      alert.addButton(withTitle: aiSubtitleLocalized("ai_subtitle.setup_later",
+                                                     fallback: "Not Now"))
+      alert.beginSheetModal(for: window) { [weak self, weak window] response in
+        guard response == .alertFirstButtonReturn,
+              let self = self,
+              let window = window else { return }
+        DispatchQueue.main.async {
+          AISubtitleFeatureState().setEnabled(true)
+          self.player.showAISubtitleSettings(parentWindow: window)
+        }
+      }
+    }
+  }
 
-    versionTopConstraint.isActive = false
+  @objc private func initialWindowDidBecomeKey(_ notification: Notification) {
+    presentAISubtitleOnboardingIfNeeded()
+  }
 
-    let subtitleLabel = NSTextField(labelWithString: subtitle)
-    subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
-    subtitleLabel.alignment = .center
-    subtitleLabel.font = NSFont.systemFont(ofSize: 12, weight: .medium)
-    subtitleLabel.textColor = .secondaryLabelColor
-    container.addSubview(subtitleLabel)
-
-    NSLayoutConstraint.activate([
-      subtitleLabel.topAnchor.constraint(equalTo: appNameLabel.bottomAnchor, constant: 1),
-      subtitleLabel.centerXAnchor.constraint(equalTo: appNameLabel.centerXAnchor),
-      versionLabel.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: 2),
-    ])
+  private func applyLocalizedBrandName(_ subtitle: String?) {
+    guard let subtitle else { return }
+    appNameLabel.stringValue = "Rawya \u{00B7} \(subtitle)"
   }
 
   private func setMaterial(_ theme: Preference.Theme?) {

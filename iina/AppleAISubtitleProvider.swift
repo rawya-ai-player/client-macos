@@ -10,6 +10,76 @@ import Foundation
 import Speech
 import Translation
 
+@available(macOS 26.0, *)
+private actor AppleSpeechAssetReservationCoordinator {
+  static let shared = AppleSpeechAssetReservationCoordinator()
+
+  func reserve(_ locale: Locale) async throws {
+    do {
+      // Let AssetInventory decide whether one of its locale variants already
+      // satisfies this request. A language-only comparison is too broad for
+      // reservations such as en-US and en-GB.
+      try await AssetInventory.reserve(locale: locale)
+      return
+    } catch {
+      let reservedLocales = await AssetInventory.reservedLocales
+      guard reservedLocales.count >= AssetInventory.maximumReservedLocales,
+            await releaseOneReservation(from: reservedLocales,
+                                        requestedLocale: locale,
+                                        preferRequestedLanguage: false) else {
+        throw reservationError()
+      }
+    }
+
+    do {
+      try await AssetInventory.reserve(locale: locale)
+    } catch {
+      throw reservationError()
+    }
+  }
+
+  func repairReservation(_ locale: Locale) async throws {
+    let reservedLocales = await AssetInventory.reservedLocales
+    guard await releaseOneReservation(from: reservedLocales,
+                                      requestedLocale: locale,
+                                      preferRequestedLanguage: true) else {
+      throw reservationError()
+    }
+    do {
+      try await AssetInventory.reserve(locale: locale)
+    } catch {
+      throw reservationError()
+    }
+  }
+
+  private func releaseOneReservation(from reservedLocales: [Locale],
+                                     requestedLocale: Locale,
+                                     preferRequestedLanguage: Bool) async -> Bool {
+    let candidates = AISubtitleLocaleReservationPolicy.releaseOrder(
+      reservedLocales: reservedLocales.map { AISubtitleLanguage($0.identifier) },
+      requestedLocale: AISubtitleLanguage(requestedLocale.identifier),
+      preferRequestedLanguage: preferRequestedLanguage
+    )
+    for candidate in candidates {
+      guard let locale = reservedLocales.first(where: { $0.identifier == candidate.code }) else { continue }
+      if await AssetInventory.release(reservedLocale: locale) {
+        return true
+      }
+    }
+    return false
+  }
+
+  private func reservationError() -> AISubtitleError {
+    AISubtitleError(
+      code: "apple_speech_locale_limit",
+      message: aiSubtitleLocalized(
+        "ai_subtitle.apple_locale_limit_error",
+        fallback: "Speech resource slots are full, and Rawya couldn't release an older language. Try again later."
+      )
+    )
+  }
+}
+
 final class AppleAISubtitleTranscriber: AISubtitleTranscriber, AISubtitleCancelableProvider {
   let providerID = AISubtitleProviderID.apple
   let modelIdentifier = AISubtitleProviderModelCatalog.identifier(for: .apple, role: .transcriber)!
@@ -71,29 +141,65 @@ final class AppleAISubtitleTranscriber: AISubtitleTranscriber, AISubtitleCancela
   func probe(language: AISubtitleLanguage) async -> AISubtitleProviderCapability {
     guard SpeechTranscriber.isAvailable else {
       return capability(status: .unavailable,
-                        reason: "Apple SpeechTranscriber is not available on this Mac.")
+                        reason: aiSubtitleLocalized(
+                          "ai_subtitle.apple_speech_unavailable",
+                          fallback: "Apple speech recognition is unavailable on this Mac."
+                        ))
     }
     let requestedLocale = Locale(identifier: language.code)
     guard let supportedLocale = await SpeechTranscriber.supportedLocale(equivalentTo: requestedLocale) else {
       return capability(status: .unavailable,
-                        reason: "Apple SpeechTranscriber does not support \(language.code).")
+                        reason: String(
+                          format: aiSubtitleLocalized(
+                            "ai_subtitle.apple_speech_language_unsupported",
+                            fallback: "Apple speech recognition does not support %@."
+                          ),
+                          localizedLanguageName(language.code)
+                        ))
     }
+    let languageName = localizedLanguageName(supportedLocale.identifier)
     let transcriber = SpeechTranscriber(locale: supportedLocale,
                                         preset: .timeIndexedTranscriptionWithAlternatives)
     switch await AssetInventory.status(forModules: [transcriber]) {
     case .installed:
       return capability(status: .available,
-                        reason: "The Apple speech model for \(supportedLocale.identifier) is installed.")
+                        reason: String(
+                          format: aiSubtitleLocalized(
+                            "ai_subtitle.apple_speech_model_installed",
+                            fallback: "%@ speech recognition is ready."
+                          ),
+                          languageName
+                        ))
     case .supported, .downloading:
       return capability(status: .needsDownload,
-                        reason: "The Apple speech model for \(supportedLocale.identifier) must finish downloading.")
+                        reason: String(
+                          format: aiSubtitleLocalized(
+                            "ai_subtitle.apple_speech_model_downloading",
+                            fallback: "%@ speech resources are still downloading. Try again when the download finishes."
+                          ),
+                          languageName
+                        ))
     case .unsupported:
       return capability(status: .unavailable,
-                        reason: "The Apple speech model for \(supportedLocale.identifier) is unsupported on this Mac.")
+                        reason: String(
+                          format: aiSubtitleLocalized(
+                            "ai_subtitle.apple_speech_model_unsupported",
+                            fallback: "%@ speech recognition is unavailable on this Mac."
+                          ),
+                          languageName
+                        ))
     @unknown default:
       return capability(status: .unavailable,
-                        reason: "The Apple speech model returned an unknown availability state.")
+                        reason: aiSubtitleLocalized(
+                          "ai_subtitle.apple_speech_model_unknown",
+                          fallback: "Rawya couldn't check the Apple speech resources. Try again later."
+                        ))
     }
+  }
+
+  private func localizedLanguageName(_ code: String) -> String {
+    let interfaceLanguage = Bundle.main.preferredLocalizations.first ?? Locale.current.identifier
+    return Locale(identifier: interfaceLanguage).localizedString(forIdentifier: code) ?? code
   }
 
   @available(macOS 26.0, *)
@@ -110,17 +216,43 @@ final class AppleAISubtitleTranscriber: AISubtitleTranscriber, AISubtitleCancela
         }
         let transcriber = SpeechTranscriber(locale: supportedLocale,
                                             preset: .timeIndexedTranscriptionWithAlternatives)
-        if let installation = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
-          progressHandler(installation.progress)
-          try await installation.downloadAndInstall()
+        try await AppleSpeechAssetReservationCoordinator.shared.reserve(supportedLocale)
+        do {
+          try await downloadAssets(for: transcriber, progressHandler: progressHandler)
+        } catch {
+          guard isAppleSpeechLocaleAllocationError(error) else { throw error }
+          // A stale locale variant can make AssetInventory believe the language
+          // is reserved while the configured module still cannot allocate it.
+          // Rebuild that reservation once before surfacing an error.
+          try await AppleSpeechAssetReservationCoordinator.shared.repairReservation(supportedLocale)
+          try await downloadAssets(for: transcriber, progressHandler: progressHandler)
         }
         completion(.success(()))
       } catch let error as AISubtitleError {
         completion(.failure(error))
       } catch {
+        if isAppleSpeechLocaleAllocationError(error) {
+          completion(.failure(AISubtitleError(
+            code: "apple_speech_locale_limit",
+            message: aiSubtitleLocalized(
+              "ai_subtitle.apple_locale_limit_error",
+              fallback: "Speech resource slots are full, and Rawya couldn't release an older language. Try again later."
+            )
+          )))
+          return
+        }
         completion(.failure(AISubtitleError(code: "apple_speech_asset_installation_failed",
                                             message: error.localizedDescription)))
       }
+    }
+  }
+
+  @available(macOS 26.0, *)
+  private func downloadAssets(for transcriber: SpeechTranscriber,
+                              progressHandler: @escaping (Progress) -> Void) async throws {
+    if let installation = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
+      progressHandler(installation.progress)
+      try await installation.downloadAndInstall()
     }
   }
 
@@ -180,6 +312,12 @@ final class AppleAISubtitleTranscriber: AISubtitleTranscriber, AISubtitleCancela
                                  supportsCloudProcessing: false,
                                  modelIdentifier: modelIdentifier)
   }
+}
+
+private func isAppleSpeechLocaleAllocationError(_ error: Error) -> Bool {
+  let message = error.localizedDescription.lowercased()
+  return message.contains("allocated locales")
+    || (message.contains("locale") && message.contains("maximum"))
 }
 
 final class AppleAISubtitleTranslator: AISubtitleTranslator, AISubtitleCancelableProvider {
@@ -293,6 +431,7 @@ final class AppleAISubtitleTranslator: AISubtitleTranslator, AISubtitleCancelabl
       TranslationSession.Request(sourceText: $0.text, clientIdentifier: $0.id)
     }
     let responses = try await session.translations(from: requests)
+    let textNormalizer = AISubtitleTargetTextNormalizer()
     var responseByID: [String: TranslationSession.Response] = [:]
     for response in responses {
       guard let identifier = response.clientIdentifier else {
@@ -312,7 +451,7 @@ final class AppleAISubtitleTranslator: AISubtitleTranslator, AISubtitleCancelabl
       }
       return AISubtitleCue(id: segment.id,
                           timeRange: segment.timeRange,
-                          text: response.targetText,
+                          text: textNormalizer.normalize(response.targetText, language: targetLanguage),
                           originalText: segment.text,
                           language: targetLanguage)
     }
@@ -320,10 +459,11 @@ final class AppleAISubtitleTranslator: AISubtitleTranslator, AISubtitleCancelabl
 
   private func identityCues(_ segments: [AISubtitleSegment],
                             language: AISubtitleLanguage) -> [AISubtitleCue] {
-    segments.map {
+    let textNormalizer = AISubtitleTargetTextNormalizer()
+    return segments.map {
       AISubtitleCue(id: $0.id,
                     timeRange: $0.timeRange,
-                    text: $0.text,
+                    text: textNormalizer.normalize($0.text, language: language),
                     originalText: nil,
                     language: language)
     }
