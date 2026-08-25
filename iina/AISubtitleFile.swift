@@ -28,6 +28,7 @@ struct AISubtitleSemanticSegmenterOptions {
   var maximumCompactRecoveryCharacterCount: Int = 160
   var maximumLatinRecoveryCharacterCount: Int = 240
   var maximumTranslationBlockDuration: Double = 8
+  var minimumTranslationBlockDuration: Double = 1
   var maximumCompactTranslationBlockCharacterCount: Int = 48
   var maximumLatinTranslationBlockCharacterCount: Int = 100
   var maximumSentencesPerTranslationBlock: Int = 3
@@ -44,11 +45,127 @@ struct AISubtitleTargetTextNormalizer {
     } else {
       transformName = nil
     }
-    guard let transformName,
-          let normalized = text.applyingTransform(StringTransform(transformName), reverse: false) else {
-      return text
+    var normalized = text
+    if let transformName,
+       let transformed = normalized.applyingTransform(StringTransform(transformName), reverse: false) {
+      normalized = transformed
+    }
+    if code == "ja" || code.hasPrefix("ja-") {
+      normalized = normalized
+        .replacingOccurrences(of: "学霸", with: "優等生")
+        .replacingOccurrences(of: "学渣", with: "落ちこぼれ")
+      normalized = removingLeadingJapaneseParticle(normalized)
+      let trimmed = normalized.trimmingCharacters(in: .whitespacesAndNewlines)
+      normalized = trimmed.replacingOccurrences(
+        of: #"\bNo(?=[\s,.!?。！？]|$)"#,
+        with: "いいえ",
+        options: [.regularExpression, .caseInsensitive])
+      normalized = normalized.replacingOccurrences(
+        of: #"いいえ[.。]\s*いいえ"#,
+        with: "いいえ",
+        options: .regularExpression)
+      if normalized.range(of: #"^Mm\s+(?=うーん)"#,
+                          options: [.regularExpression, .caseInsensitive]) != nil {
+        normalized = normalized.replacingOccurrences(
+          of: #"^Mm\s+(?=うーん)"#,
+          with: "",
+          options: [.regularExpression, .caseInsensitive])
+      }
+    } else if code == "ko" || code.hasPrefix("ko-") {
+      normalized = removingLeadingStandaloneKoreanParticle(normalized)
+      let trimmed = normalized.trimmingCharacters(in: .whitespacesAndNewlines)
+      normalized = trimmed.replacingOccurrences(
+        of: #"^번호\s+아니요"#,
+        with: "아니요",
+        options: .regularExpression)
+      normalized = normalized.replacingOccurrences(
+        of: #"^Mm\s+(?=음)"#,
+        with: "",
+        options: [.regularExpression, .caseInsensitive])
+      if normalized.range(of: #"^I\s*[.…]*$"#,
+                          options: [.regularExpression, .caseInsensitive]) != nil {
+        normalized = "저..."
+      }
     }
     return normalized
+  }
+
+  private func removingLeadingStandaloneKoreanParticle(_ text: String) -> String {
+    let parts = text.split(maxSplits: 1, whereSeparator: { $0.isWhitespace })
+    guard parts.count == 2,
+          ["은", "는", "을", "를"].contains(String(parts[0])) else { return text }
+    return String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  private func removingLeadingJapaneseParticle(_ text: String) -> String {
+    guard let first = text.first,
+          ["は", "が", "を"].contains(first),
+          text.count > 1 else { return text }
+    let remainder = text.dropFirst()
+    let brokenBoundaryStarts = [
+      "私", "僕", "俺", "あなた", "彼", "彼女", "息子", "娘", "人", "皆", "これ", "それ", "あれ"
+    ]
+    guard brokenBoundaryStarts.contains(where: { remainder.hasPrefix($0) }) else { return text }
+    return String(remainder).trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+}
+
+struct AISubtitleForeignScriptNoiseFilter {
+  var minimumSegmentCount = 2
+  var minimumRunDuration: Double = 10
+  var maximumGap: Double = 8
+  var minimumLatinLetterRatio = 0.8
+
+  func filter(_ segments: [AISubtitleSegment], language: AISubtitleLanguage) -> [AISubtitleSegment] {
+    guard usesEastAsianWritingSystem(language) else { return segments }
+    var discardedIDs = Set<String>()
+    var currentRun: [AISubtitleSegment] = []
+
+    func shouldDiscard(_ run: [AISubtitleSegment]) -> Bool {
+      guard run.count >= minimumSegmentCount,
+            let first = run.first,
+            let last = run.last else { return false }
+      return last.timeRange.end - first.timeRange.start >= minimumRunDuration
+    }
+
+    func flush() {
+      if shouldDiscard(currentRun) {
+        discardedIDs.formUnion(currentRun.map(\.id))
+      }
+      currentRun.removeAll(keepingCapacity: true)
+    }
+
+    for segment in segments {
+      guard isPrimarilyLatin(segment.text) else {
+        flush()
+        continue
+      }
+      if let previous = currentRun.last,
+         segment.timeRange.start - previous.timeRange.end > maximumGap {
+        flush()
+      }
+      currentRun.append(segment)
+    }
+    flush()
+    return segments.filter { !discardedIDs.contains($0.id) }
+  }
+
+  private func isPrimarilyLatin(_ text: String) -> Bool {
+    let letters = text.unicodeScalars.filter(CharacterSet.letters.contains)
+    guard letters.count >= 4 else { return false }
+    let latinCount = letters.filter {
+      (65...90).contains($0.value) || (97...122).contains($0.value)
+    }.count
+    return Double(latinCount) / Double(letters.count) >= minimumLatinLetterRatio
+  }
+
+  private func usesEastAsianWritingSystem(_ language: AISubtitleLanguage) -> Bool {
+    let primaryCode = language.code.replacingOccurrences(of: "_", with: "-")
+      .lowercased()
+      .split(separator: "-")
+      .first
+      .map(String.init)
+    return primaryCode.map { ["zh", "ja", "ko"].contains($0) } ?? false
   }
 }
 
@@ -69,7 +186,9 @@ struct AISubtitleTextPartitioner {
     var currentSentenceCount = 0
     for unit in units {
       let unitSentenceCount = max(1, sentenceEndCount(in: unit))
-      let candidate = joined(current, unit, compact: compact)
+      let candidate = joined(current,
+                             unit,
+                             compact: compact && usesSpacelessWritingSystem(language))
       if !current.isEmpty,
          (displayCharacterCount(candidate, compact: compact) > maximumCharacterCount
            || currentSentenceCount + unitSentenceCount > maximumSentenceCount) {
@@ -311,6 +430,10 @@ struct AISubtitleTextPartitioner {
     primaryLanguageCode(language).map { ["zh", "ja", "ko"].contains($0) } ?? false
   }
 
+  private func usesSpacelessWritingSystem(_ language: AISubtitleLanguage?) -> Bool {
+    primaryLanguageCode(language).map { ["zh", "ja"].contains($0) } ?? false
+  }
+
   private func wordBoundaryOffsets(in characters: [Character]) -> Set<Int> {
     let text = String(characters)
     let tokenizer = NLTokenizer(unit: .word)
@@ -338,7 +461,8 @@ struct AISubtitleSemanticSegmenter {
 
   func assemble(_ segments: [AISubtitleSegment], language: AISubtitleLanguage) -> [AISubtitleSegment] {
     let compact = usesCompactWritingSystem(language)
-    let sorted = segments
+    let joinsWithoutSpaces = usesSpacelessWritingSystem(language)
+    let sorted = AISubtitleForeignScriptNoiseFilter().filter(segments, language: language)
       .compactMap(normalized)
       .sorted {
         if $0.timeRange.start == $1.timeRange.start {
@@ -372,7 +496,7 @@ struct AISubtitleSemanticSegmenter {
       }
       if shouldMerge(previous, segment, gap: gap, compact: compact, language: language) {
         previous.timeRange.end = max(previous.timeRange.end, segment.timeRange.end)
-        previous.text = joined(previous.text, segment.text, compact: compact)
+        previous.text = joined(previous.text, segment.text, compact: joinsWithoutSpaces)
         result.append(previous)
         continue
       }
@@ -395,12 +519,20 @@ struct AISubtitleSemanticSegmenter {
       : options.maximumLatinTranslationBlockCharacterCount
     let minimumPartCount = max(1, Int(ceil(segment.timeRange.duration
       / options.maximumTranslationBlockDuration)))
-    let parts = partitioner.parts(segment.text,
+    var parts = partitioner.parts(segment.text,
                                   maximumCharacterCount: maximumCharacterCount,
                                   maximumSentenceCount: options.maximumSentencesPerTranslationBlock,
                                   minimumPartCount: minimumPartCount,
                                   compact: compact,
                                   language: language)
+    let maximumReadablePartCount = max(1, Int(floor(segment.timeRange.duration
+      / options.minimumTranslationBlockDuration)))
+    if parts.count > maximumReadablePartCount {
+      parts = partitioner.balancedParts(segment.text,
+                                        count: maximumReadablePartCount,
+                                        compact: compact,
+                                        language: language)
+    }
     guard parts.count > 1 else { return [segment] }
     let weights = parts.map { max(1, partitioner.readableCharacterCount($0)) }
     var remainingWeight = weights.reduce(0, +)
@@ -412,14 +544,17 @@ struct AISubtitleSemanticSegmenter {
         end = segment.timeRange.end
       } else {
         let remainingPartCount = parts.count - index - 1
-        let minimumAllocation = max(0,
+        let minimumAllocation = max(options.minimumTranslationBlockDuration,
                                     remainingDuration
                                       - options.maximumTranslationBlockDuration
                                       * Double(remainingPartCount))
+        let maximumAllocation = remainingDuration
+          - options.minimumTranslationBlockDuration * Double(remainingPartCount)
         let proportionalAllocation = remainingWeight > 0
           ? remainingDuration * Double(weights[index]) / Double(remainingWeight)
           : remainingDuration / Double(remainingPartCount + 1)
         let allocation = min(options.maximumTranslationBlockDuration,
+                             maximumAllocation,
                              max(minimumAllocation, proportionalAllocation))
         end = min(segment.timeRange.end, cursor + allocation)
       }
@@ -454,6 +589,23 @@ struct AISubtitleSemanticSegmenter {
                                         and: second.text,
                                         language: language)
     if hasBrokenWordBoundary {
+      let recoveryMaximumCount = compact
+        ? options.maximumCompactRecoveryCharacterCount
+        : options.maximumLatinRecoveryCharacterCount
+      return combinedDuration <= options.maximumRecoveryDuration
+        && combinedCount <= recoveryMaximumCount
+    }
+    if gap <= options.unstableResultMergeGap,
+       hasIncompleteTrailingPhrase(first.text, language: language) {
+      let recoveryMaximumCount = compact
+        ? options.maximumCompactRecoveryCharacterCount
+        : options.maximumLatinRecoveryCharacterCount
+      return combinedDuration <= options.maximumRecoveryDuration
+        && combinedCount <= recoveryMaximumCount
+    }
+    if normalizedGap <= options.unstableResultMergeGap,
+       isFragment(second, compact: compact, language: language),
+       !isStandaloneResponse(second.text, language: language) {
       let recoveryMaximumCount = compact
         ? options.maximumCompactRecoveryCharacterCount
         : options.maximumLatinRecoveryCharacterCount
@@ -586,6 +738,44 @@ struct AISubtitleSemanticSegmenter {
     }
   }
 
+  private func hasIncompleteTrailingPhrase(_ text: String,
+                                           language: AISubtitleLanguage) -> Bool {
+    let primaryCode = language.code.replacingOccurrences(of: "_", with: "-")
+      .lowercased()
+      .split(separator: "-")
+      .first
+      .map(String.init)
+    guard primaryCode == "en" else { return false }
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    if let last = trimmed.last, ",;:".contains(last) { return true }
+    let words = trimmed.lowercased()
+      .components(separatedBy: CharacterSet.alphanumerics.inverted)
+      .filter { !$0.isEmpty }
+    guard let last = words.last else { return false }
+    if [
+      "a", "an", "the", "and", "but", "or", "of", "to", "in", "on", "at", "for", "from",
+      "with", "by", "as", "than", "that", "who", "which", "because", "if", "when", "while",
+      "my", "your", "his", "her", "our", "their", "its", "can", "could", "would", "should",
+      "will", "have", "has", "had", "is", "are", "was", "were"
+    ].contains(last) {
+      return true
+    }
+
+    let tagger = NLTagger(tagSchemes: [.lexicalClass])
+    tagger.string = trimmed
+    var lastLexicalClass: NLTag?
+    tagger.enumerateTags(in: trimmed.startIndex..<trimmed.endIndex,
+                         unit: .word,
+                         scheme: .lexicalClass,
+                         options: [.omitWhitespace, .omitPunctuation]) { tag, _ in
+      if let tag { lastLexicalClass = tag }
+      return true
+    }
+    return lastLexicalClass.map {
+      [.adjective, .determiner, .preposition, .conjunction, .particle, .number].contains($0)
+    } ?? false
+  }
+
   private func hasTerminalSentenceBoundary(_ text: String) -> Bool {
     var characters = Array(text.trimmingCharacters(in: .whitespacesAndNewlines))
     while let last = characters.last,
@@ -637,6 +827,15 @@ struct AISubtitleSemanticSegmenter {
       .first
       .map(String.init)
     return primaryCode.map { ["zh", "ja", "ko"].contains($0) } ?? false
+  }
+
+  private func usesSpacelessWritingSystem(_ language: AISubtitleLanguage) -> Bool {
+    let primaryCode = language.code.replacingOccurrences(of: "_", with: "-")
+      .lowercased()
+      .split(separator: "-")
+      .first
+      .map(String.init)
+    return primaryCode.map { ["zh", "ja"].contains($0) } ?? false
   }
 }
 
@@ -905,10 +1104,12 @@ struct AISubtitleReadingOptions {
   var maximumLatinCueCharacterCount: Int = 72
   var maximumSentencesPerCue: Int = 1
   var minimumSplitCueDuration: Double = 1.1
+  var minimumStableCueDuration: Double = 0.8
+  var maximumBoundaryAdjustment: Double = 0.35
 }
 
-/// Produces one timing track for both languages. Source and target may wrap differently,
-/// but a cue transition always happens at the same time in both files.
+/// Keeps source and target inside the same semantic speech ranges while allowing each
+/// language to choose its own display segmentation and reading rhythm.
 struct AISubtitlePairedTimelineAssembler {
   var readingOptions = AISubtitleReadingOptions()
   private let partitioner = AISubtitleTextPartitioner()
@@ -971,18 +1172,6 @@ struct AISubtitlePairedTimelineAssembler {
       if !pair.timeRange.isEmpty { pairs.append(pair) }
     }
 
-    pairs = pairs.flatMap {
-      displayPairs(from: $0,
-                   sourceLanguage: sourceLanguage,
-                   targetLanguage: targetLanguage)
-    }
-
-    for index in pairs.indices {
-      pairs[index].timeRange.end = min(
-        pairs[index].timeRange.end,
-        pairs[index].timeRange.start + readingOptions.maximumDisplayDuration)
-    }
-
     for index in pairs.indices.dropLast() {
       let requiredDuration = readableDuration(sourceText: pairs[index].sourceText,
                                               sourceLanguage: sourceLanguage,
@@ -993,113 +1182,165 @@ struct AISubtitlePairedTimelineAssembler {
                                        max(pairs[index].timeRange.end,
                                            pairs[index].timeRange.start + requiredDuration))
     }
+    smoothBoundaries(&pairs,
+                     sourceLanguage: sourceLanguage,
+                     targetLanguage: targetLanguage)
 
-    let normalizedTranscript = pairs.map {
+    let originalCues = pairs.flatMap {
+      displayCues(from: $0,
+                  text: $0.sourceText,
+                  language: sourceLanguage,
+                  originalText: nil)
+    }
+    let normalizedTranslatedCues = pairs.flatMap {
+      displayCues(from: $0,
+                  text: $0.translatedText,
+                  language: targetLanguage,
+                  originalText: $0.sourceText)
+    }
+    let normalizedTranscript = originalCues.map {
       AISubtitleSegment(id: $0.id,
                         timeRange: $0.timeRange,
-                        text: $0.sourceText,
+                        text: $0.text.replacingOccurrences(of: "\n", with: " "),
                         language: sourceLanguage)
-    }
-    let originalCues = pairs.map {
-      AISubtitleCue(id: $0.id,
-                    timeRange: $0.timeRange,
-                    text: wrappedForDisplay($0.sourceText, language: sourceLanguage),
-                    language: sourceLanguage)
-    }
-    let normalizedTranslatedCues = pairs.map {
-      AISubtitleCue(id: $0.id,
-                    timeRange: $0.timeRange,
-                    text: wrappedForDisplay($0.translatedText, language: targetLanguage),
-                    originalText: $0.sourceText,
-                    language: targetLanguage)
     }
     return AISubtitlePairedTimeline(transcript: normalizedTranscript,
                                     originalCues: originalCues,
                                     translatedCues: normalizedTranslatedCues)
   }
 
-  private func displayPairs(from pair: Pair,
-                            sourceLanguage: AISubtitleLanguage,
-                            targetLanguage: AISubtitleLanguage) -> [Pair] {
-    let sourceCompact = usesCompactWritingSystem(sourceLanguage)
-    let targetCompact = usesCompactWritingSystem(targetLanguage)
-    let sourceMaximum = sourceCompact
+  private func displayCues(from pair: Pair,
+                           text: String,
+                           language: AISubtitleLanguage,
+                           originalText: String?) -> [AISubtitleCue] {
+    let compact = usesCompactWritingSystem(language)
+    let maximumCharacterCount = compact
       ? readingOptions.maximumCompactCueCharacterCount
       : readingOptions.maximumLatinCueCharacterCount
-    let targetMaximum = targetCompact
-      ? readingOptions.maximumCompactCueCharacterCount
-      : readingOptions.maximumLatinCueCharacterCount
-    let sourceNaturalParts = partitioner.parts(
-      pair.sourceText,
-      maximumCharacterCount: sourceMaximum,
+    let naturalParts = partitioner.parts(
+      text,
+      maximumCharacterCount: maximumCharacterCount,
       maximumSentenceCount: readingOptions.maximumSentencesPerCue,
-      compact: sourceCompact,
-      language: sourceLanguage)
-    let translatedNaturalParts = partitioner.parts(
-      pair.translatedText,
-      maximumCharacterCount: targetMaximum,
-      maximumSentenceCount: readingOptions.maximumSentencesPerCue,
-      compact: targetCompact,
-      language: targetLanguage)
-    let desiredCount = max(sourceNaturalParts.count, translatedNaturalParts.count)
-    let sourceLineCapacity = 2 * (sourceCompact
+      compact: compact,
+      language: language)
+    let lineCapacity = 2 * (compact
       ? readingOptions.compactLineCharacterCount
       : readingOptions.latinLineCharacterCount)
-    let targetLineCapacity = 2 * (targetCompact
-      ? readingOptions.compactLineCharacterCount
-      : readingOptions.latinLineCharacterCount)
-    let minimumCountForTwoLineDisplay = max(
-      1,
-      Int(ceil(Double(partitioner.displayCharacterCount(pair.sourceText, compact: sourceCompact))
-        / Double(sourceLineCapacity))),
-      Int(ceil(Double(partitioner.displayCharacterCount(pair.translatedText, compact: targetCompact))
-        / Double(targetLineCapacity))))
+    let minimumCountForTwoLineDisplay = max(1,
+      Int(ceil(Double(partitioner.displayCharacterCount(text, compact: compact))
+        / Double(lineCapacity))))
     let maximumCountForDuration = max(1, Int(floor(pair.timeRange.duration
       / readingOptions.minimumSplitCueDuration)))
-    let count = min(desiredCount,
-                    max(maximumCountForDuration, minimumCountForTwoLineDisplay))
-    guard count > 1 else { return [pair] }
-
-    let sourceParts = expandedParts(sourceNaturalParts,
-                                    fullText: pair.sourceText,
-                                    count: count,
-                                    compact: sourceCompact,
-                                    language: sourceLanguage)
-    let translatedParts = expandedParts(translatedNaturalParts,
-                                        fullText: pair.translatedText,
-                                        count: count,
-                                        compact: targetCompact,
-                                        language: targetLanguage)
-    guard sourceParts.count == count, translatedParts.count == count else { return [pair] }
-    let cleanedSourceParts = sourceParts.compactMap(removingEdgePunctuation)
-    let cleanedTranslatedParts = translatedParts.compactMap(removingEdgePunctuation)
-    guard cleanedSourceParts.count == count, cleanedTranslatedParts.count == count else { return [pair] }
-
-    let weights = zip(cleanedSourceParts, cleanedTranslatedParts).map { source, translated in
-      max(readingOptions.minimumSplitCueDuration,
-          Double(readableCharacterCount(source)) / charactersPerSecond(sourceLanguage),
-          Double(readableCharacterCount(translated)) / charactersPerSecond(targetLanguage))
+    let desiredCount = max(naturalParts.count, minimumCountForTwoLineDisplay)
+    var count = min(desiredCount, maximumCountForDuration)
+    var cleanedParts: [String] = []
+    while count > 0 {
+      let parts = expandedParts(naturalParts,
+                                fullText: text,
+                                count: count,
+                                compact: compact,
+                                language: language)
+      cleanedParts = parts.compactMap(removingEdgePunctuation)
+      let previewDuration = min(pair.timeRange.duration,
+                                readingOptions.maximumDisplayDuration * Double(cleanedParts.count))
+      let previewWeights = cleanedParts.map {
+        max(0.01, Double(readableCharacterCount($0)) / charactersPerSecond(language))
+      }
+      let previewAllocations = proportionalDurations(for: previewWeights,
+                                                      totalDuration: previewDuration)
+      if count <= minimumCountForTwoLineDisplay
+          || cleanedParts.count <= 1
+          || previewAllocations.allSatisfy({ $0 >= readingOptions.minimumStableCueDuration }) {
+        break
+      }
+      count -= 1
     }
-    let baselineDuration = readingOptions.minimumSplitCueDuration * Double(count)
-    let distributableDuration = max(0, pair.timeRange.duration - baselineDuration)
-    let totalWeight = weights.reduce(0, +)
+    guard !cleanedParts.isEmpty else { return [] }
+
+    let weights = cleanedParts.map { part in
+      max(0.01, Double(readableCharacterCount(part)) / charactersPerSecond(language))
+    }
+    let displayDuration = min(pair.timeRange.duration,
+                              readingOptions.maximumDisplayDuration * Double(cleanedParts.count))
+    let allocations = displayDurations(for: weights,
+                                       totalDuration: displayDuration)
     var cursor = pair.timeRange.start
-    return cleanedSourceParts.indices.map { index in
+    return cleanedParts.indices.map { index in
       let end: Double
-      if index == cleanedSourceParts.count - 1 {
-        end = pair.timeRange.end
+      if index == cleanedParts.count - 1 {
+        end = pair.timeRange.start + displayDuration
       } else {
-        let proportional = totalWeight > 0
-          ? distributableDuration * weights[index] / totalWeight
-          : 0
-        end = min(pair.timeRange.end,
-                  cursor + readingOptions.minimumSplitCueDuration + proportional)
+        end = min(pair.timeRange.start + displayDuration, cursor + allocations[index])
       }
       defer { cursor = end }
-      return Pair(id: "\(pair.id)-display-\(index + 1)",
-                  timeRange: AISubtitleTimeRange(start: cursor, end: end),
-                  sourceText: cleanedSourceParts[index],
-                  translatedText: cleanedTranslatedParts[index])
+      return AISubtitleCue(id: cleanedParts.count == 1
+        ? pair.id
+        : "\(pair.id)-display-\(index + 1)",
+        timeRange: AISubtitleTimeRange(start: cursor, end: end),
+        text: wrappedForDisplay(cleanedParts[index], language: language),
+        originalText: originalText,
+        language: language)
+    }
+  }
+
+  private func displayDurations(for weights: [Double], totalDuration: Double) -> [Double] {
+    var durations = proportionalDurations(for: weights, totalDuration: totalDuration)
+    let maximum = readingOptions.maximumDisplayDuration
+    let cappedTotal = durations.reduce(0.0) { $0 + min($1, maximum) }
+    var remaining = max(0, totalDuration - cappedTotal)
+    durations = durations.map { min($0, maximum) }
+    while remaining > 0.001 {
+      let headroom = durations.map { max(0, maximum - $0) }
+      let totalHeadroom = headroom.reduce(0, +)
+      guard totalHeadroom > 0.001 else { break }
+      for index in durations.indices {
+        let addition = min(headroom[index], remaining * headroom[index] / totalHeadroom)
+        durations[index] += addition
+      }
+      remaining = max(0, totalDuration - durations.reduce(0, +))
+    }
+    return durations
+  }
+
+  private func proportionalDurations(for weights: [Double], totalDuration: Double) -> [Double] {
+    guard !weights.isEmpty else { return [] }
+    let totalWeight = weights.reduce(0, +)
+    guard totalWeight > 0 else {
+      return weights.map { _ in totalDuration / Double(weights.count) }
+    }
+    return weights.map { totalDuration * $0 / totalWeight }
+  }
+
+  private func smoothBoundaries(_ pairs: inout [Pair],
+                                sourceLanguage: AISubtitleLanguage,
+                                targetLanguage: AISubtitleLanguage) {
+    guard pairs.count > 1 else { return }
+    for index in pairs.indices.dropLast() {
+      let nextIndex = pairs.index(after: index)
+      guard abs(pairs[index].timeRange.end - pairs[nextIndex].timeRange.start) <= 0.001 else {
+        continue
+      }
+      let currentNeed = readableDuration(sourceText: pairs[index].sourceText,
+                                         sourceLanguage: sourceLanguage,
+                                         translatedText: pairs[index].translatedText,
+                                         targetLanguage: targetLanguage)
+      let nextNeed = readableDuration(sourceText: pairs[nextIndex].sourceText,
+                                      sourceLanguage: sourceLanguage,
+                                      translatedText: pairs[nextIndex].translatedText,
+                                      targetLanguage: targetLanguage)
+      let currentDuration = pairs[index].timeRange.duration
+      let nextDuration = pairs[nextIndex].timeRange.duration
+      let moveLater = min(readingOptions.maximumBoundaryAdjustment,
+                          max(0, currentNeed - currentDuration),
+                          max(0, nextDuration - max(readingOptions.minimumDisplayDuration, nextNeed)))
+      let moveEarlier = min(readingOptions.maximumBoundaryAdjustment,
+                            max(0, nextNeed - nextDuration),
+                            max(0, currentDuration - max(readingOptions.minimumDisplayDuration, currentNeed)))
+      let adjustment = moveLater > 0 ? moveLater : -moveEarlier
+      guard abs(adjustment) > 0.001 else { continue }
+      let boundary = pairs[index].timeRange.end + adjustment
+      pairs[index].timeRange.end = boundary
+      pairs[nextIndex].timeRange.start = boundary
     }
   }
 
@@ -1109,10 +1350,9 @@ struct AISubtitlePairedTimelineAssembler {
                              compact: Bool,
                              language: AISubtitleLanguage) -> [String] {
     guard naturalParts.count <= count else {
-      return partitioner.balancedParts(fullText,
-                                       count: count,
-                                       compact: compact,
-                                       language: language)
+      return condensedParts(naturalParts,
+                            count: count,
+                            language: language)
     }
     var result = naturalParts
     while result.count < count {
@@ -1132,6 +1372,31 @@ struct AISubtitlePairedTimelineAssembler {
         break
       }
       if !didSplit { break }
+    }
+    return result
+  }
+
+  private func condensedParts(_ parts: [String],
+                              count: Int,
+                              language: AISubtitleLanguage) -> [String] {
+    guard count > 0 else { return [] }
+    var result = parts
+    let primaryCode = language.code.replacingOccurrences(of: "_", with: "-")
+      .lowercased()
+      .split(separator: "-")
+      .first
+      .map(String.init)
+    let separator = primaryCode.map { ["zh", "ja"].contains($0) } == true ? "" : " "
+    while result.count > count {
+      guard let index = result.indices.dropLast().min(by: { first, second in
+        let firstCount = readableCharacterCount(result[first])
+          + readableCharacterCount(result[result.index(after: first)])
+        let secondCount = readableCharacterCount(result[second])
+          + readableCharacterCount(result[result.index(after: second)])
+        return firstCount < secondCount
+      }) else { break }
+      let next = result.index(after: index)
+      result.replaceSubrange(index...next, with: [result[index] + separator + result[next]])
     }
     return result
   }
@@ -1165,14 +1430,17 @@ struct AISubtitlePairedTimelineAssembler {
       compact: usesCompactWritingSystem(language),
       language: language)
     guard parts.count == 2 else { return text }
-    let first = removingLineEndPunctuation(parts[0])
-    let second = removingLineEndPunctuation(parts[1])
+    let first = removingLineEdgePunctuation(parts[0])
+    let second = removingLineEdgePunctuation(parts[1])
     guard !first.isEmpty, !second.isEmpty else { return text }
     return first + "\n" + second
   }
 
-  private func removingLineEndPunctuation(_ text: String) -> String {
+  private func removingLineEdgePunctuation(_ text: String) -> String {
     var characters = Array(text.trimmingCharacters(in: .whitespacesAndNewlines))
+    while let first = characters.first, Self.trailingPunctuation.contains(first) {
+      characters.removeFirst()
+    }
     while let last = characters.last, Self.trailingPunctuation.contains(last) {
       characters.removeLast()
     }

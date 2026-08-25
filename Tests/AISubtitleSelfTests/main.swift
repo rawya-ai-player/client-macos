@@ -1,4 +1,6 @@
 import Foundation
+import CoreMedia
+import Speech
 
 func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
   guard condition() else {
@@ -34,6 +36,12 @@ defer { try? FileManager.default.removeItem(at: tempRoot) }
 
 let english = AISubtitleLanguage("en")
 let chinese = AISubtitleLanguage("zh-Hans")
+let korean = AISubtitleLanguage("ko")
+expect(AISubtitleTargetTextNormalizer().normalize(
+  "学霸が皆正気を失っている。私たちの学渣はどうすればいい？",
+  language: AISubtitleLanguage("ja"))
+  == "優等生が皆正気を失っている。私たちの落ちこぼれはどうすればいい？",
+       "Japanese subtitles should replace untranslated Chinese school slang with natural Japanese")
 expect(AISubtitleLanguageCatalog.sourceLanguages.first?.code == nil
        && AISubtitleLanguageCatalog.sourceLanguages.first?.fallbackTitle == "Choose Language"
        && !AISubtitleLanguageCatalog.targetLanguages.contains(where: { $0.code == nil }),
@@ -43,6 +51,32 @@ expect(english.isEquivalent(to: AISubtitleLanguage("en-US")) &&
        !chinese.isEquivalent(to: AISubtitleLanguage("zh-Hant")),
        "Language matching should ignore regions while preserving Chinese script conversion")
 let textNormalizer = AISubtitleTargetTextNormalizer()
+expect(textNormalizer.normalize("은 아직도 동문결이라고 부릅니다", language: korean)
+       == "아직도 동문결이라고 부릅니다",
+       "A Korean postposition split onto the beginning of a subtitle cue should be removed")
+expect(textNormalizer.normalize("이 선생님은 말씀하셨습니다", language: korean)
+       == "이 선생님은 말씀하셨습니다",
+       "A legitimate Korean demonstrative at the beginning of a subtitle cue must remain")
+expect(textNormalizer.normalize("번호 아니요, 조이", language: korean) == "아니요, 조이"
+       && textNormalizer.normalize("Mm 음. 믿을 수 없습니다", language: korean)
+         == "음. 믿을 수 없습니다"
+       && textNormalizer.normalize("I...", language: korean) == "저...",
+       "Common untranslated or misread English interjections should be localized in Korean output")
+expect(textNormalizer.normalize("があなたのためにいます", language: AISubtitleLanguage("ja"))
+       == "あなたのためにいます",
+       "A Japanese particle split onto the beginning of a subtitle cue should be removed")
+expect(textNormalizer.normalize("が、しかし問題があります", language: AISubtitleLanguage("ja"))
+       == "が、しかし問題があります",
+       "A Japanese conjunction followed by punctuation should remain")
+expect(textNormalizer.normalize("はい、知っています", language: AISubtitleLanguage("ja"))
+       == "はい、知っています",
+       "A Japanese word that begins with the same character as a particle must remain")
+expect(textNormalizer.normalize("No", language: AISubtitleLanguage("ja")) == "いいえ"
+       && textNormalizer.normalize("No. いいえ、ジョーイ", language: AISubtitleLanguage("ja"))
+         == "いいえ、ジョーイ"
+       && textNormalizer.normalize("Mm うーん。信じられません", language: AISubtitleLanguage("ja"))
+         == "うーん。信じられません",
+       "Common untranslated English interjections should be localized in Japanese output")
 expect(textNormalizer.normalize("那會造成損害的", language: chinese) == "那会造成损害的"
        && textNormalizer.normalize("那会造成损害的", language: AISubtitleLanguage("zh-Hant")) == "那會造成損害的"
        && textNormalizer.normalize("It stays unchanged", language: english) == "It stays unchanged",
@@ -503,6 +537,258 @@ expect(longJapaneseContext.count >= 3
        "Long recognition results should become contextual translation blocks instead of one oversized request")
 expect(longJapaneseContext.contains { AISubtitleTextPartitioner().sentenceEndCount(in: $0.text) > 1 },
        "Translation blocks should retain nearby sentence context when it fits")
+let englishChunkBoundaryPhrase = AISubtitleSemanticSegmenter().assemble([
+  AISubtitleSegment(id: "boundary-1",
+                    timeRange: AISubtitleTimeRange(start: 352.5, end: 356.52),
+                    text: "you know, sometimes you're looking for something, and you just don't even see that it's right there in front of",
+                    language: english),
+  AISubtitleSegment(id: "boundary-2",
+                    timeRange: AISubtitleTimeRange(start: 356.52, end: 358.86),
+                    text: "you, sipping coffee.",
+                    language: english)
+], language: english)
+expect(englishChunkBoundaryPhrase.map(\.text).joined(separator: " ")
+         .contains("in front of you, sipping coffee")
+       && englishChunkBoundaryPhrase.allSatisfy { $0.timeRange.duration >= 1 },
+       "A chunk boundary after an English connector should not create an unreadable sub-second fragment")
+let koreanPhrase = AISubtitleSemanticSegmenter().assemble([
+  AISubtitleSegment(id: "korean-spacing-1",
+                    timeRange: AISubtitleTimeRange(start: 0, end: 1),
+                    text: "안녕 나는",
+                    language: korean),
+  AISubtitleSegment(id: "korean-spacing-2",
+                    timeRange: AISubtitleTimeRange(start: 1, end: 2.5),
+                    text: "박재원이라고 해",
+                    language: korean)
+], language: korean)
+expect(koreanPhrase.first?.text == "안녕 나는 박재원이라고 해",
+       "Korean speech fragments should retain word spacing when they are reassembled")
+let koreanTranslationContext = AISubtitleTextPartitioner().parts(
+  "안녕하세요. 아니야, 찍으면 찍는다고 얘기했어.",
+  maximumCharacterCount: 100,
+  maximumSentenceCount: 3,
+  compact: true,
+  language: korean)
+expect(koreanTranslationContext.first?.contains("안녕하세요. 아니야") == true,
+       "Korean sentences should retain spacing inside a compact translation block")
+let foreignNoiseFilter = AISubtitleForeignScriptNoiseFilter()
+let sustainedForeignNoise = [
+  AISubtitleSegment(id: "foreign-noise-1",
+                    timeRange: AISubtitleTimeRange(start: 0, end: 5),
+                    text: "I wane out ton Got I",
+                    language: korean),
+  AISubtitleSegment(id: "foreign-noise-2",
+                    timeRange: AISubtitleTimeRange(start: 6, end: 11),
+                    text: "ralway it tat sad why",
+                    language: korean),
+  AISubtitleSegment(id: "foreign-noise-3",
+                    timeRange: AISubtitleTimeRange(start: 12, end: 17),
+                    text: "tranny try a ton ban",
+                    language: korean)
+]
+expect(foreignNoiseFilter.filter(sustainedForeignNoise, language: korean).isEmpty,
+       "A sustained Latin-only run recognized with an East Asian speech model should be discarded")
+expect(foreignNoiseFilter.filter(Array(sustainedForeignNoise.prefix(2)), language: korean).isEmpty,
+       "Two Latin-only results spanning at least ten seconds should be treated as sustained noise")
+expect(foreignNoiseFilter.filter([
+  AISubtitleSegment(id: "proper-name",
+                    timeRange: AISubtitleTimeRange(start: 0, end: 2),
+                    text: "Hugsy",
+                    language: korean),
+  AISubtitleSegment(id: "native-dialogue",
+                    timeRange: AISubtitleTimeRange(start: 2, end: 4),
+                    text: "안녕하세요",
+                    language: korean)
+], language: korean).count == 2,
+       "An isolated Latin proper name and native-language dialogue should remain")
+let chineseTrailingWord = AISubtitleSemanticSegmenter().assemble([
+  AISubtitleSegment(id: "chinese-long-phrase",
+                    timeRange: AISubtitleTimeRange(start: 555.06, end: 563.22),
+                    text: "不是我划的你现在这么多扣我现在什么都没有我肯定你划的这明明就是你划的不就是一道吗我用红笔给你涂一下就完了赔你就是",
+                    language: chinese),
+  AISubtitleSegment(id: "chinese-trailing-word",
+                    timeRange: AISubtitleTimeRange(start: 563.22, end: 563.28),
+                    text: "了",
+                    language: chinese)
+], language: chinese)
+expect(chineseTrailingWord.map(\.text).joined().contains("赔你就是了")
+       && !chineseTrailingWord.contains { $0.text == "了" },
+       "A short compact-script tail should rejoin its long phrase before translation block splitting")
+if #available(macOS 26.0, *) {
+  var firstJapaneseTurn = AttributedString("おばあちゃん家どうしようかな ")
+  firstJapaneseTurn.audioTimeRange = CMTimeRange(
+    start: CMTime(seconds: 0, preferredTimescale: 1_000),
+    duration: CMTime(seconds: 1.2, preferredTimescale: 1_000))
+  firstJapaneseTurn.transcriptionConfidence = 0.9
+  var secondJapaneseTurn = AttributedString("しばらく行ってないでしょ")
+  secondJapaneseTurn.audioTimeRange = CMTimeRange(
+    start: CMTime(seconds: 1.8, preferredTimescale: 1_000),
+    duration: CMTime(seconds: 1.2, preferredTimescale: 1_000))
+  secondJapaneseTurn.transcriptionConfidence = 0.8
+  firstJapaneseTurn.append(secondJapaneseTurn)
+  let pauseSegments = AppleSpeechTimedTextSegmenter().segments(
+    from: firstJapaneseTurn,
+    chunkOffset: 12,
+    language: japanese)
+  expect(pauseSegments.count == 2
+         && pauseSegments[0].timeRange == AISubtitleTimeRange(start: 12, end: 13.2)
+         && pauseSegments[1].timeRange == AISubtitleTimeRange(start: 13.8, end: 15)
+         && abs((pauseSegments[1].confidence ?? 0) - 0.8) < 0.001,
+         "Word-level Apple time attributes should split dialogue at a meaningful pause")
+
+  var firstKoreanPhrase = AttributedString("안녕 나는 ")
+  firstKoreanPhrase.audioTimeRange = CMTimeRange(
+    start: CMTime(seconds: 0, preferredTimescale: 1_000),
+    duration: CMTime(seconds: 1, preferredTimescale: 1_000))
+  var secondKoreanPhrase = AttributedString("박재원이라고 해")
+  secondKoreanPhrase.audioTimeRange = CMTimeRange(
+    start: CMTime(seconds: 1.35, preferredTimescale: 1_000),
+    duration: CMTime(seconds: 1, preferredTimescale: 1_000))
+  firstKoreanPhrase.append(secondKoreanPhrase)
+  expect(AppleSpeechTimedTextSegmenter().segments(
+    from: firstKoreanPhrase,
+    chunkOffset: 0,
+    language: korean).count == 1,
+         "A short Korean phrase pause should not be split as aggressively as Chinese or Japanese")
+}
+let translationContextSegments = [
+  AISubtitleSegment(id: "context-a",
+                    timeRange: AISubtitleTimeRange(start: 0, end: 1),
+                    text: "现在我们家里面临的",
+                    language: chinese),
+  AISubtitleSegment(id: "context-b",
+                    timeRange: AISubtitleTimeRange(start: 1, end: 2),
+                    text: "最重要的问题",
+                    language: chinese),
+  AISubtitleSegment(id: "context-c",
+                    timeRange: AISubtitleTimeRange(start: 2, end: 3),
+                    text: "是儿子",
+                    language: chinese)
+]
+let translationContextCodec = AppleTranslationContextCodec()
+expect(translationContextCodec.groups(translationContextSegments).map(\.count) == [3],
+       "Nearby semantic segments should share one bounded Apple translation context")
+let encodedTranslationContext = translationContextCodec.encodedSource(translationContextSegments)
+expect(encodedTranslationContext.contains("99170001")
+       && encodedTranslationContext.contains("99170003"),
+       "Translation context should contain stable numeric segment markers")
+expect(translationContextCodec.decodedTranslations(
+  "99170001 What our family is facing now\n99170002 The most important problem\n99170003 is our son",
+  count: 3) == ["What our family is facing now", "The most important problem", "is our son"],
+       "Translated context should map marker-delimited text back to its original segments")
+expect(translationContextCodec.decodedTranslations(
+  "99170001 First\n99170003 Third",
+  count: 3) == nil,
+       "A missing translation marker should force safe per-segment fallback")
+expect(!translationContextCodec.hasSafeBoundaries(
+  ["はい、そうです", "は息子です"],
+  targetLanguage: japanese),
+       "A Japanese particle moved across a context marker should force per-segment fallback")
+expect(!translationContextCodec.hasSafeBoundaries(
+  ["The most important problem", "is our son"],
+  targetLanguage: english),
+       "A lowercase English continuation moved across a context marker should force per-segment fallback")
+expect(!translationContextCodec.hasSafeBoundaries(
+  ["There are", ". That's the word"],
+  targetLanguage: english),
+       "Punctuation moved across a context marker should force per-segment fallback")
+expect(!translationContextCodec.hasSafeBoundaries(
+  ["가장 중요한 문제", "은 아들입니다"],
+  targetLanguage: korean),
+       "A standalone Korean particle moved across a context marker should force per-segment fallback")
+expect(!translationContextCodec.hasSafeBoundaries(
+  ["샤오리리", "와 동일합니다. 그녀"],
+  targetLanguage: korean),
+       "A Korean conjunction moved across a context marker should force per-segment fallback")
+let englishAdjectiveBoundaryPhrase = AISubtitleSemanticSegmenter().assemble([
+  AISubtitleSegment(id: "adjective-boundary-1",
+                    timeRange: AISubtitleTimeRange(start: 484.44, end: 487.32),
+                    text: "Well, I called over there, and it turns out, ugly naked",
+                    language: english),
+  AISubtitleSegment(id: "adjective-boundary-2",
+                    timeRange: AISubtitleTimeRange(start: 487.32, end: 490.5),
+                    text: "guy is subletting it himself, and he's already had, like, a hundred applicants.",
+                    language: english)
+], language: english)
+expect(!englishAdjectiveBoundaryPhrase.dropLast().contains { $0.text.hasSuffix("naked") }
+       && !englishAdjectiveBoundaryPhrase.dropFirst().contains { $0.text.hasPrefix("guy") },
+       "An English adjective should stay with its noun across a speech-result boundary")
+let englishCommaBoundaryPhrase = AISubtitleSemanticSegmenter().assemble([
+  AISubtitleSegment(id: "comma-boundary-1",
+                    timeRange: AISubtitleTimeRange(start: 497.94, end: 498.9),
+                    text: "Yeah,",
+                    language: english),
+  AISubtitleSegment(id: "comma-boundary-2",
+                    timeRange: AISubtitleTimeRange(start: 498.9, end: 500.28),
+                    text: "check it out. You can probably see it from the window.",
+                    language: english)
+], language: english)
+expect(englishCommaBoundaryPhrase.first?.text.hasPrefix("Yeah, check it out") == true,
+       "A comma-continued English phrase should remain one translation context")
+let denseEnglishDisplay = AISubtitlePairedTimelineAssembler().assemble(
+  transcript: [AISubtitleSegment(id: "dense-english-display",
+                                 timeRange: AISubtitleTimeRange(start: 497.94, end: 500.28),
+                                 text: "Yeah, check it out. You can probably see it from the window.",
+                                 language: english)],
+  translatedCues: [AISubtitleCue(id: "dense-english-display",
+                                 timeRange: AISubtitleTimeRange(start: 497.94, end: 500.28),
+                                 text: "看看吧。你也许能从窗户看到",
+                                 language: chinese)],
+  sourceLanguage: english,
+  targetLanguage: chinese)
+expect(denseEnglishDisplay.originalCues.count == 1
+       && denseEnglishDisplay.originalCues[0].text.components(separatedBy: .newlines).count == 2,
+       "A short semantic range should avoid rapid display changes when one two-line cue is readable")
+let smoothedEnglishBoundary = AISubtitlePairedTimelineAssembler().assemble(
+  transcript: [
+    AISubtitleSegment(id: "dense-boundary-a",
+                      timeRange: AISubtitleTimeRange(start: 0, end: 1.2),
+                      text: "马上进入高三了",
+                      language: chinese),
+    AISubtitleSegment(id: "dense-boundary-b",
+                      timeRange: AISubtitleTimeRange(start: 1.2, end: 4),
+                      text: "好",
+                      language: chinese)
+  ],
+  translatedCues: [
+    AISubtitleCue(id: "dense-boundary-a",
+                  timeRange: AISubtitleTimeRange(start: 0, end: 1.2),
+                  text: "We are about to enter our senior year of high school",
+                  language: english),
+    AISubtitleCue(id: "dense-boundary-b",
+                  timeRange: AISubtitleTimeRange(start: 1.2, end: 4),
+                  text: "Okay",
+                  language: english)
+  ],
+  sourceLanguage: chinese,
+  targetLanguage: english)
+expect(smoothedEnglishBoundary.originalCues[0].timeRange.end > 1.2
+       && smoothedEnglishBoundary.originalCues[0].timeRange.end <= 1.55
+       && smoothedEnglishBoundary.originalCues[0].timeRange.end
+         == smoothedEnglishBoundary.originalCues[1].timeRange.start,
+       "A dense semantic range may borrow a small amount of spare adjacent reading time")
+let condensedEnglishSentences = AISubtitlePairedTimelineAssembler().assemble(
+  transcript: [AISubtitleSegment(id: "condensed-sentences",
+                                 timeRange: AISubtitleTimeRange(start: 0, end: 4.2),
+                                 text: "됐어 알아들었어 거기까지. 고생하세요.",
+                                 language: korean)],
+  translatedCues: [AISubtitleCue(id: "condensed-sentences",
+                                 timeRange: AISubtitleTimeRange(start: 0, end: 4.2),
+                                 text: "It's okay. I got it. That's it. Have a hard time.",
+                                 language: english)],
+  sourceLanguage: korean,
+  targetLanguage: english)
+expect(condensedEnglishSentences.translatedCues.count == 3
+       && condensedEnglishSentences.originalCues.count == 2
+       && !condensedEnglishSentences.translatedCues.contains {
+         $0.text.first(where: { $0.isLetter })?.isLowercase == true
+       },
+       "Each language should choose its own readable cue count without splitting words")
+expect(condensedEnglishSentences.originalCues.first?.timeRange.start == 0
+       && condensedEnglishSentences.originalCues.last?.timeRange.end == 4.2
+       && condensedEnglishSentences.translatedCues.first?.timeRange.start == 0
+       && condensedEnglishSentences.translatedCues.last?.timeRange.end == 4.2,
+       "Independently segmented tracks should remain inside the same semantic range")
 let meaningfulTurns = AISubtitleSemanticSegmenter().assemble([
   AISubtitleSegment(id: "turn-1",
                     timeRange: AISubtitleTimeRange(start: 5, end: 6),
@@ -596,20 +882,13 @@ let pairedTimeline = AISubtitlePairedTimelineAssembler().assemble(
   translatedCues: pairedTranslations,
   sourceLanguage: japanese,
   targetLanguage: chinese)
-expect(pairedTimeline.originalCues.map(\.timeRange) == pairedTimeline.translatedCues.map(\.timeRange)
-       && pairedTimeline.originalCues.count == pairedTimeline.translatedCues.count,
-       "Original and translated subtitles must use one shared cue timeline")
+expect(pairedTimeline.originalCues.first?.timeRange.start == pairedTimeline.translatedCues.first?.timeRange.start
+       && pairedTimeline.originalCues[0].timeRange.end <= pairedTimeline.originalCues[1].timeRange.start
+       && pairedTimeline.translatedCues[0].timeRange.end <= pairedTimeline.translatedCues[1].timeRange.start,
+       "Original and translated subtitles should stay inside ordered semantic speech ranges")
 expect(pairedTimeline.originalCues[0].timeRange.end > 0.4
        && pairedTimeline.originalCues[0].timeRange.end <= 3,
        "A short cue should use available silence to provide a readable display duration")
-let pairedOriginalSRT = writer.string(for: pairedTimeline.originalCues, format: .srt)
-let pairedTranslatedSRT = writer.string(for: pairedTimeline.translatedCues, format: .srt)
-let pairedOriginalTimestamps = pairedOriginalSRT.components(separatedBy: .newlines)
-  .filter { $0.contains(" --> ") }
-let pairedTranslatedTimestamps = pairedTranslatedSRT.components(separatedBy: .newlines)
-  .filter { $0.contains(" --> ") }
-expect(pairedOriginalTimestamps == pairedTranslatedTimestamps,
-       "Both exported SRT files must contain exactly the same timestamp rows")
 let longDisplayTimeline = AISubtitlePairedTimelineAssembler().assemble(
   transcript: [AISubtitleSegment(
     id: "long-display",
@@ -624,12 +903,16 @@ let longDisplayTimeline = AISubtitlePairedTimelineAssembler().assemble(
   sourceLanguage: japanese,
   targetLanguage: chinese)
 expect(longDisplayTimeline.originalCues.count >= 3
-       && longDisplayTimeline.originalCues.count == longDisplayTimeline.translatedCues.count
-       && longDisplayTimeline.originalCues.map(\.timeRange)
-         == longDisplayTimeline.translatedCues.map(\.timeRange)
+       && longDisplayTimeline.translatedCues.count >= 3
+       && longDisplayTimeline.originalCues.first?.timeRange.start == 10
+       && longDisplayTimeline.originalCues.last?.timeRange.end == 22
+       && longDisplayTimeline.translatedCues.first?.timeRange.start == 10
+       && longDisplayTimeline.translatedCues.last?.timeRange.end == 22
+       && longDisplayTimeline.originalCues.allSatisfy { $0.timeRange.duration <= 6.001 }
+       && longDisplayTimeline.translatedCues.allSatisfy { $0.timeRange.duration <= 6.001 }
        && longDisplayTimeline.originalCues.allSatisfy { $0.text.components(separatedBy: .newlines).count <= 2 }
        && longDisplayTimeline.translatedCues.allSatisfy { $0.text.components(separatedBy: .newlines).count <= 2 },
-       "A contextual translation block should become several readable, synchronized display cues")
+       "A contextual translation block should become readable cues within one semantic range")
 let japaneseGrammarTimeline = AISubtitlePairedTimelineAssembler().assemble(
   transcript: [AISubtitleSegment(
     id: "japanese-grammar",
@@ -644,10 +927,9 @@ let japaneseGrammarTimeline = AISubtitlePairedTimelineAssembler().assemble(
   sourceLanguage: japanese,
   targetLanguage: chinese)
 let japaneseDisplayText = japaneseGrammarTimeline.originalCues.map(\.text)
-expect(japaneseGrammarTimeline.originalCues.count == japaneseGrammarTimeline.translatedCues.count
-       && !japaneseDisplayText.contains { $0.hasSuffix("早かっ") }
+expect(!japaneseDisplayText.contains { $0.hasSuffix("早かっ") }
        && !japaneseDisplayText.contains { $0.hasPrefix("たん") },
-       "Synchronized display splitting must not cut Japanese conjugations to match translated sentence counts")
+       "Language-specific display splitting must not cut Japanese conjugations")
 let japaneseLineParts = AISubtitleTextPartitioner().balancedParts(
   "セックスをすることが早ければ早いほど良くないみたいな",
   count: 2,
@@ -676,6 +958,25 @@ expect(balancedEnglishLines.count == 2
        && balancedEnglishLines.allSatisfy { $0.count <= 42 }
        && abs(balancedEnglishLines[0].count - balancedEnglishLines[1].count) <= 8,
        "Latin subtitles should wrap into two balanced readable lines instead of favoring distant punctuation")
+let leadingCommaLineTimeline = AISubtitlePairedTimelineAssembler().assemble(
+  transcript: [AISubtitleSegment(
+    id: "leading-comma-line",
+    timeRange: AISubtitleTimeRange(start: 0, end: 4),
+    text: "The guy is subletting it himself, and he already has nearly one hundred applicants",
+    language: english)],
+  translatedCues: [AISubtitleCue(
+    id: "leading-comma-line",
+    timeRange: AISubtitleTimeRange(start: 0, end: 4),
+    text: "这个人正在自己转租，而且已经有将近一百名申请者",
+    language: chinese)],
+  sourceLanguage: english,
+  targetLanguage: chinese)
+expect(leadingCommaLineTimeline.originalCues.flatMap { $0.text.components(separatedBy: .newlines) }
+         .allSatisfy { line in
+           guard let first = line.first, let last = line.last else { return false }
+           return !",.;:!?，。！？；：".contains(first) && !",.;:!?，。！？；：".contains(last)
+         },
+       "Wrapped subtitle lines should not begin or end with punctuation")
 let f1LongExchangeTimeline = AISubtitlePairedTimelineAssembler().assemble(
   transcript: [AISubtitleSegment(
     id: "f1-long-exchange",
@@ -691,10 +992,11 @@ let f1LongExchangeTimeline = AISubtitlePairedTimelineAssembler().assemble(
   targetLanguage: japanese)
 expect(f1LongExchangeTimeline.originalCues.count >= 2,
        "A dense English-Japanese exchange should split into multiple display cues")
-expect(f1LongExchangeTimeline.originalCues.count == f1LongExchangeTimeline.translatedCues.count
-       && f1LongExchangeTimeline.originalCues.map(\.timeRange)
-         == f1LongExchangeTimeline.translatedCues.map(\.timeRange),
-       "A dense English-Japanese exchange should keep an exact shared timeline")
+expect(f1LongExchangeTimeline.originalCues.first?.timeRange.start == 5266.26
+       && f1LongExchangeTimeline.originalCues.last?.timeRange.end == 5271.36
+       && f1LongExchangeTimeline.translatedCues.first?.timeRange.start == 5266.26
+       && f1LongExchangeTimeline.translatedCues.last?.timeRange.end == 5271.36,
+       "A dense English-Japanese exchange should keep both tracks inside its semantic range")
 expect(f1LongExchangeTimeline.originalCues.allSatisfy {
   $0.text.components(separatedBy: .newlines).count <= 2
     && $0.text.components(separatedBy: .newlines).allSatisfy { $0.count <= 42 }
