@@ -51,7 +51,7 @@ Rawya 专注于 macOS 本地媒体播放体验，提供清晰易用的操作界�
 3. 使用 Xcode 打开仓库中的 `.xcodeproj` 工程。
 4. 选择主应用 Scheme 和目标架构后执行构建。
 
-当前 `main` 分支基于稳定的 `1.4.4` 版本维护。后续升级继续以 IINA 正式版本为基线，具体约定见[上游版本策略](docs/upstream-release-strategy.md)。
+Rawya 产品版本从 `1.0.0` 开始独立演进，构建号从 `1001` 全局递增；具体约定见[版本与构建号策略](docs/versioning.md)。Developer ID 签名、公证与分发流程见[macOS 分发指南](docs/macos-distribution.md)。当前 IINA 上游基线为 `v1.4.4`，后续升级约定见[上游版本策略](docs/upstream-release-strategy.md)。
 
 ## 许可证
 
