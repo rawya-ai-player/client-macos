@@ -16,6 +16,11 @@
 "general.username" = "Brukernavn";
 "general.password" = "Passord";
 "general.na" = "N/A";
+"brand.localized_name" = "";
+"about.overview.tagline" = "AI-drevet videospiller for macOS.";
+"about.overview.website" = "Nettsted";
+"about.overview.source_code" = "Kildekode";
+"about.overview.license" = "Rawya er fri programvare med åpen kildekode, utgitt under GNU GPLv3.";
 
 "input.value_is_empty" = "Value cannot be empty.";
 "input.already_exists" = "Value already exists.";
@@ -30,7 +35,7 @@
 "initial.beta.desc" = "Hvis du vil rulle tilbake til en utgivelsesversjon, fjern avkrysningen for \"motta betaoppdateringer\" fra Innstillinger > Generelt, og installer en stabil versjon fra vår <a href=\"https://rawya.app\">offisielle nettside</a>.";
 "initial.nightly.desc" = "Nightly is not recommended to be used as your daily driver. Currently nightly builds do not support auto update. Please manually download newer builds from our <a href=\"https://rawya.app\">nightly website</a>.";
 "initial.debug.desc" = "Feilsøkingsversjoner er vanligvis ikke optimalisert for ytelse, så det anbefales derfor ikke for daglig bruk. Feilsøkingsversjoner støtter ikke automatisk oppdatering.";
-"initial.bug_report" = "Meld feil via <a href=\"https://github.com/iina/iina/issues\">GitHub Issues</a>.";
+"initial.bug_report" = "Meld feil via <a href=\"https://github.com/rawya-ai-player/client-macos/issues\">GitHub Issues</a>.";
 
 // Inspector Window
 "inspector.error" = "Feil";

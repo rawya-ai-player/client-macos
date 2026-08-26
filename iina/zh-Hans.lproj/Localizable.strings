@@ -17,7 +17,10 @@
 "general.password" = "密码";
 "general.na" = "N/A";
 "brand.localized_name" = "若雅";
-
+"about.overview.tagline" = "面向 macOS 的 AI 视频播放器。";
+"about.overview.website" = "官方网站";
+"about.overview.source_code" = "源代码";
+"about.overview.license" = "若雅是自由开源软件，遵循 GNU GPLv3 许可证发布。";
 "input.value_is_empty" = "数值不能为空";
 "input.already_exists" = "值已经存在。";
 
@@ -31,7 +34,7 @@
 "initial.beta.desc" = "如果你想回滚到发布版本，请从“设置” > “通用” 中取消勾选 “接收测试版本（Beta）更新”，并从我们的<a href=\"https://rawya.app\">官方网站</a>安装一个稳定版本。";
 "initial.nightly.desc" = "我们不建议将 Nightly 作为日常使用的版本。目前 Nightly 不支持自动更新。请从我们的<a href=\"https://rawya.app\"> Nightly 网站</a>手动下载更新的版本。";
 "initial.debug.desc" = "调试版本（Debug）通常没有对性能进行优化，所以不建议日常用。调试版本（Debug）不支持自动更新。";
-"initial.bug_report" = "通过<a href=\"https://github.com/iina/iina/issues\">GitHub issues</a>报告。";
+"initial.bug_report" = "通过<a href=\"https://github.com/rawya-ai-player/client-macos/issues\">GitHub issues</a>报告。";
 
 // Inspector Window
 "inspector.error" = "错误";

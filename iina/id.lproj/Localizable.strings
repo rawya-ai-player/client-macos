@@ -16,6 +16,11 @@
 "general.username" = "Nama pengguna";
 "general.password" = "Kata sandi";
 "general.na" = "N/A";
+"brand.localized_name" = "";
+"about.overview.tagline" = "Pemutar video bertenaga AI untuk macOS.";
+"about.overview.website" = "Situs web";
+"about.overview.source_code" = "Kode sumber";
+"about.overview.license" = "Rawya adalah perangkat lunak bebas dan sumber terbuka yang dirilis di bawah GNU GPLv3.";
 
 "input.value_is_empty" = "Nilai tidak boleh kosong.";
 "input.already_exists" = "Nilai sudah ada.";
@@ -30,7 +35,7 @@
 "initial.beta.desc" = "Jika anda ingin mengembalikan ke versi rilis, hilangkan \"terima pembaruan beta\" dari Pengaturan > Umum, dan instal versi stabil dari <a href=\"https://rawya.app\">situs resmi</a>.";
 "initial.nightly.desc" = "Versi nightly tidak disarankan untuk digunakan sehari-hari. Versi nightly saat ini tidak mendukung pembaruan otomatis. Unduh versi baru secara manual dari <a href=\"https://rawya.app\">situs nightly</a> kami.";
 "initial.debug.desc" = "Bangunan debug biasanya tidak dioptimalkan performanya, sehingga tidak disarankan untuk digunakan sebagai drive harian. Bangunan debug tidak mendukung pembaruan otomatis.";
-"initial.bug_report" = "Laporkan melalui <a href=\"https://github.com/iina/iina/issues\">Masalah GitHub</a>.";
+"initial.bug_report" = "Laporkan melalui <a href=\"https://github.com/rawya-ai-player/client-macos/issues\">Masalah GitHub</a>.";
 
 // Inspector Window
 "inspector.error" = "Eror";

@@ -834,9 +834,18 @@ protocol AISubtitleCredentialChecking {
 }
 
 extension KeychainAccess.ServiceName {
-  static let aiSubtitleOpenAI = KeychainAccess.ServiceName(rawValue: "IINA AI Subtitle OpenAI")
-  static let aiSubtitleAliyun = KeychainAccess.ServiceName(rawValue: "IINA AI Subtitle Aliyun")
-  static let aiSubtitleAliyunMachineTranslation = KeychainAccess.ServiceName(rawValue: "IINA AI Subtitle Aliyun Machine Translation")
+  static let aiSubtitleOpenAI = KeychainAccess.ServiceName(
+    rawValue: "Rawya AI Subtitle OpenAI",
+    legacyRawValues: ["IINA AI Subtitle OpenAI"]
+  )
+  static let aiSubtitleAliyun = KeychainAccess.ServiceName(
+    rawValue: "Rawya AI Subtitle Aliyun",
+    legacyRawValues: ["IINA AI Subtitle Aliyun"]
+  )
+  static let aiSubtitleAliyunMachineTranslation = KeychainAccess.ServiceName(
+    rawValue: "Rawya AI Subtitle Aliyun Machine Translation",
+    legacyRawValues: ["IINA AI Subtitle Aliyun Machine Translation"]
+  )
 }
 
 struct AISubtitleKeychainCredentialChecker: AISubtitleCredentialChecking {

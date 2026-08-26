@@ -62,6 +62,30 @@ RAWYA_ALLOW_NON_MAIN=1 RAWYA_ALLOW_DIRTY=1 \
 Validation artifacts must remain local. They do not consume a build number
 until they are distributed to a tester or user.
 
+## Artifact formats and retention
+
+`Rawya.app` is the actual application bundle and is produced for every local or
+distribution build. Use it for local installation and direct application
+testing. Do not publish a bare `.app` because it is a directory bundle and can
+lose metadata when transferred without an archive.
+
+Create a DMG only for a release that people install manually from the Rawya
+website or GitHub Releases. The DMG is a presentation and transport container;
+it contains the already signed `Rawya.app` and normally an Applications folder
+shortcut. It does not replace the app build.
+
+When Sparkle updates are enabled, publish a notarized ZIP with a Sparkle EdDSA
+signature for the appcast. A public release can therefore have both artifacts:
+
+- `Rawya-<version>.dmg` for manual download and drag-to-Applications install.
+- `Rawya-<version>.zip` for Sparkle automatic updates.
+
+Local Debug builds only retain the most recent archived app. Distribution
+builds retain the most recent successful notarized build set: its Xcode archive
+for symbols, notarized app, final distribution archive, manifest, and
+notarization response. Older build sets and transient Export/upload archives
+are moved to Trash only after the new notarized artifact passes verification.
+
 ## Notarize and staple
 
 Pass the signed app produced by the build script:
@@ -74,7 +98,9 @@ RAWYA_CONFIRM_NOTARIZATION=NOTARIZE_RAWYA \
 
 The script submits a ZIP with `notarytool`, waits for the result, stores the
 response and failure log next to the artifact, staples the accepted ticket,
-checks Gatekeeper with `spctl`, and creates a final notarized ZIP.
+checks Gatekeeper with `spctl`, creates a final notarized ZIP, and verifies the
+app again after extracting that ZIP. Older builds are pruned only after this
+final archive verification passes.
 
 Submitting a build for notarization is an external Apple operation. Do it only
 for an approved release candidate or an explicitly approved validation build.

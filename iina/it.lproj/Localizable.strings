@@ -16,6 +16,11 @@
 "general.username" = "Nome utente";
 "general.password" = "Password";
 "general.na" = "N/A";
+"brand.localized_name" = "";
+"about.overview.tagline" = "Lettore video per macOS basato sull’intelligenza artificiale.";
+"about.overview.website" = "Sito web";
+"about.overview.source_code" = "Codice sorgente";
+"about.overview.license" = "Rawya è software libero e open source, distribuito secondo la GNU GPLv3.";
 
 "input.value_is_empty" = "Il campo non può essere vuoto.";
 "input.already_exists" = "Il valore esiste già.";
@@ -30,7 +35,7 @@
 "initial.beta.desc" = "Se vuoi passare al canale di release ufficiali di Rawya, togli la spunta da 'Ricevi aggiornamenti beta' in Impostazioni → Generali, poi scarica l'ultima versione stabile dal <a href=\"https://rawya.app\">sito ufficiale</a>.";
 "initial.nightly.desc" = "Le Nightly sono versioni di sviluppo instabili e non adatte all'utilizzo quotidiano. Attualmente, inoltre, non sono aggiornate automaticamente: se desideri, puoi scaricarle dalla <a href=\"https://rawya.app\">pagina dedicata</a>.";
 "initial.debug.desc" = "Le versioni di debug sono dedicate alla raccolta di dati per la risoluzione di problemi e per altre finalità analitiche. Non sono ottimizzate per le prestazioni e non prevedono aggiornamenti automatici; in generale se ne sconsiglia l'utilizzo.";
-"initial.bug_report" = "Segnala tramite <a href=\"https://github.com/iina/iina/issues\">GitHub</a>.";
+"initial.bug_report" = "Segnala tramite <a href=\"https://github.com/rawya-ai-player/client-macos/issues\">GitHub</a>.";
 
 // Inspector Window
 "inspector.error" = "Errore";

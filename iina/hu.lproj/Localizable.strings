@@ -16,6 +16,11 @@
 "general.username" = "Felhasználónév";
 "general.password" = "Jelszó";
 "general.na" = "N/A";
+"brand.localized_name" = "";
+"about.overview.tagline" = "Mesterséges intelligenciával működő videólejátszó macOS-re.";
+"about.overview.website" = "Webhely";
+"about.overview.source_code" = "Forráskód";
+"about.overview.license" = "A Rawya ingyenes és nyílt forráskódú szoftver, amely a GNU GPLv3 alatt jelenik meg.";
 
 "input.value_is_empty" = "Az érték nem lehet üres.";
 "input.already_exists" = "Az érték már létezik.";
@@ -30,7 +35,7 @@
 "initial.beta.desc" = "Amennyiben végleges verzióra váltana, szüntesse meg a kijelölést a \"béta frissítések\" opciónál a Beállítások > Általános almenüben, és telepítsen stabil verziót a <a href=\"https://rawya.app\">hivatalos weboldalunkról</a>.";
 "initial.nightly.desc" = "A Nightly verzió nem ajánlott mindennapi használatra. Jelenleg a nightly verzió nem támogatja az automatikus frissítést.. Töltsd le a friss verziót a <a href=\"https://rawya.app\">nightly oldalunkról</a>.";
 "initial.debug.desc" = "A hibakeresési verzió általában nincs teljesítményre optimalizálva, ezért nem ajánlott napi használatra. A hibakeresési verziók nem támogatják az automatikus frissítést.";
-"initial.bug_report" = "Jelentés a <a href=\"https://github.com/iina/iina/issues\">GitHub-bugok</a> felületen.";
+"initial.bug_report" = "Jelentés a <a href=\"https://github.com/rawya-ai-player/client-macos/issues\">GitHub-bugok</a> felületen.";
 
 // Inspector Window
 "inspector.error" = "Hiba";

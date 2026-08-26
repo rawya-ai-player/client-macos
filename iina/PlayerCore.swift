@@ -340,10 +340,10 @@ class PlayerCore: NSObject {
 
   override init() {
     playerNumber = PlayerCore.playerCoreCounter
-    backgroundQueue = DispatchQueue(label: "IINAPlayerCoreTask\(playerNumber)", qos: .background)
-    playlistQueue = DispatchQueue(label: "IINAPlaylistTask\(playerNumber)", qos: .utility)
-    thumbnailQueue = DispatchQueue(label: "IINAPlayerCoreThumbnailTask\(playerNumber)", qos: .utility)
-    aiSubtitleQueue = DispatchQueue(label: "IINAPlayerCoreAISubtitleTask\(playerNumber)", qos: .utility)
+    backgroundQueue = DispatchQueue(label: "RawyaPlayerCoreTask\(playerNumber)", qos: .background)
+    playlistQueue = DispatchQueue(label: "RawyaPlaylistTask\(playerNumber)", qos: .utility)
+    thumbnailQueue = DispatchQueue(label: "RawyaPlayerCoreThumbnailTask\(playerNumber)", qos: .utility)
+    aiSubtitleQueue = DispatchQueue(label: "RawyaPlayerCoreAISubtitleTask\(playerNumber)", qos: .utility)
     super.init()
     self.mpv = MPVController(playerCore: self)
     self.mainWindow = MainWindowController(playerCore: self)

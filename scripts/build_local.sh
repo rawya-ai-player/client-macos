@@ -78,8 +78,8 @@ ln -sfn "$archive_path" "${archive_root}/latest"
 
 shopt -s nullglob
 archives=("${archive_root}"/20[0-9][0-9][0-1][0-9][0-3][0-9]-[0-2][0-9][0-5][0-9][0-5][0-9]-*)
-if (( ${#archives[@]} > 3 )); then
-  remove_count=$((${#archives[@]} - 3))
+if (( ${#archives[@]} > 1 )); then
+  remove_count=$((${#archives[@]} - 1))
   for ((index = 0; index < remove_count; index++)); do
     candidate="${archives[$index]}"
     candidate_parent="$(dirname "$candidate")"

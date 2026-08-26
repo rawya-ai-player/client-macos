@@ -17,6 +17,14 @@ artifact_dir="$(dirname "$app_path")"
 notary_profile="${RAWYA_NOTARY_PROFILE:-rawya-notary}"
 response_path="${artifact_dir}/notarization-response.json"
 log_path="${artifact_dir}/notarization-log.json"
+verification_dir=""
+
+cleanup_verification() {
+  if [[ -n "${verification_dir:-}" && -d "$verification_dir" ]]; then
+    /usr/bin/trash "$verification_dir"
+  fi
+}
+trap cleanup_verification EXIT
 
 if [[ ! -d "$app_path" ]]; then
   echo "Rawya app not found: ${app_path}" >&2
@@ -75,6 +83,14 @@ xcrun stapler staple "$app_path"
 "${repo_root}/scripts/verify_distribution.sh" "$app_path" --require-notarization
 ditto -c -k --sequesterRsrc --keepParent "$app_path" "$final_zip"
 
+verification_dir="$(mktemp -d "${artifact_dir}/.verification.XXXXXX")"
+ditto -x -k "$final_zip" "$verification_dir"
+"${repo_root}/scripts/verify_distribution.sh" \
+  "${verification_dir}/Rawya.app" \
+  --require-notarization
+/usr/bin/trash "$verification_dir"
+verification_dir=""
+
 info_path="${artifact_dir}/distribution-info.txt"
 if [[ -f "$info_path" ]]; then
   sed -i '' 's/^notarized=no$/notarized=yes/' "$info_path"
@@ -83,6 +99,15 @@ if [[ -f "$info_path" ]]; then
     echo "notary_profile=${notary_profile}"
   } >> "$info_path"
 fi
+
+signed_zip="${artifact_dir}/Rawya-${version}-${build_number}-signed.zip"
+for intermediate_zip in "$signed_zip" "$submission_zip"; do
+  if [[ -f "$intermediate_zip" ]]; then
+    /usr/bin/trash "$intermediate_zip"
+  fi
+done
+
+"${repo_root}/scripts/prune_distribution_builds.sh" "$(basename "$artifact_dir")"
 
 echo "Notarized app: ${app_path}"
 echo "Distribution archive: ${final_zip}"

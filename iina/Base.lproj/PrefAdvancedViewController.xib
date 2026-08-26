@@ -42,7 +42,7 @@
                         <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
                     </textFieldCell>
                 </textField>
-                <button horizontalHuggingPriority="750" verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="3Gg-Io-SlS">
+                <button hidden="YES" horizontalHuggingPriority="750" verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="3Gg-Io-SlS">
                     <rect key="frame" x="456" y="16" width="25" height="25"/>
                     <buttonCell key="cell" type="help" bezelStyle="helpButton" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="jZ3-bn-f9w">
                         <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>

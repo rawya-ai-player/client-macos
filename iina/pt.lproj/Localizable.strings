@@ -16,6 +16,11 @@
 "general.username" = "Nome de Utilizador";
 "general.password" = "Senha";
 "general.na" = "N/A";
+"brand.localized_name" = "";
+"about.overview.tagline" = "Reprodutor de vídeo para macOS com inteligência artificial.";
+"about.overview.website" = "Site";
+"about.overview.source_code" = "Código-fonte";
+"about.overview.license" = "O Rawya é software livre e de código aberto, publicado sob a GNU GPLv3.";
 
 "input.value_is_empty" = "Nome não pode ser vazio.";
 "input.already_exists" = "Nome já existe.";
@@ -30,7 +35,7 @@
 "initial.beta.desc" = "Para reverter para uma versão anterior desmarque \"Receber Atualizações beta\" a partir de Definições... > Geral, e instale a versão pretendida através do nosso <a href=\"https://rawya.app\">site oficial</a>.";
 "initial.nightly.desc" = "Não é recomendado que use Nightly no dia a dia. As versões Nightly não suportam atualizações automáticas. Descarregue novas versões manualmente do nosso <a href=\"https://rawya.app\">website nightly</a>.";
 "initial.debug.desc" = "Compilações para depuração não estão otimizadas para velocidade, por isso não é recomendado que a use no dia a dia. Compilações para depuração não suportam atualizações automáticas.";
-"initial.bug_report" = "Reporte através <a href=\"https://github.com/iina/iina/issues\">GitHub Issues</a>.";
+"initial.bug_report" = "Reporte através <a href=\"https://github.com/rawya-ai-player/client-macos/issues\">GitHub Issues</a>.";
 
 // Inspector Window
 "inspector.error" = "Erro";

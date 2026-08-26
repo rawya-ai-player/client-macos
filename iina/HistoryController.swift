@@ -21,7 +21,7 @@ class HistoryController: NSObject {
   @Atomic var tasksOutstanding = 0
 
   private let plistURL: URL
-  private let queue = DispatchQueue(label: "IINAHistoryController", qos: .background)
+  private let queue = DispatchQueue(label: "RawyaHistoryController", qos: .background)
 
   init(plistFileURL: URL) {
     self.plistURL = plistFileURL

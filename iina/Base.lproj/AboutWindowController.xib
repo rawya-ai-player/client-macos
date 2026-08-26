@@ -284,7 +284,7 @@
                                                             <action selector="contributorsBtnAction:" target="-2" id="DAF-9S-mHR"/>
                                                         </connections>
                                                     </button>
-                                                    <button verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="trK-iz-kG7">
+                                                    <button hidden="YES" verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="trK-iz-kG7">
                                                         <rect key="frame" x="164" y="0.0" width="72" height="18"/>
                                                         <buttonCell key="cell" type="inline" title="Crowdin" bezelStyle="inline" image="forward" imagePosition="left" alignment="center" borderStyle="border" inset="2" id="7k7-70-Kku">
                                                             <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>

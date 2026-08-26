@@ -39,7 +39,7 @@ final class FFmpegAISubtitleAudioExtractor: AISubtitleAudioExtracting, AISubtitl
   private let cancellationLock = NSLock()
   private var canceled = false
 
-  init(queue: DispatchQueue = DispatchQueue(label: "IINAAISubtitleAudioExtractor", qos: .utility),
+  init(queue: DispatchQueue = DispatchQueue(label: "RawyaAISubtitleAudioExtractor", qos: .utility),
        fileManager: FileManager = .default) {
     self.queue = queue
     self.fileManager = fileManager

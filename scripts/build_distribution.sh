@@ -108,7 +108,10 @@ ditto -c -k --sequesterRsrc --keepParent "$app_path" "$submission_zip"
   echo "notarized=no"
 } > "${artifact_dir}/distribution-info.txt"
 
+# The exported app is copied into Artifacts and is no longer needed. Keep the
+# Xcode archive for symbols and the artifact directory for notarization.
+/usr/bin/trash "$export_path"
+
 echo "Signed app: ${app_path}"
 echo "Notarization upload: ${submission_zip}"
 echo "Archive: ${archive_path}"
-echo "Export: ${export_path}"

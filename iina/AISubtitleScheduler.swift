@@ -99,7 +99,7 @@ final class AISubtitleScheduler {
        cacheStore: AISubtitleCacheStore = AISubtitleCacheStore(),
        configuration: Configuration = Configuration(),
        fileManager: FileManager = .default,
-       queue: DispatchQueue = DispatchQueue(label: "IINAAISubtitleScheduler", qos: .utility)) {
+       queue: DispatchQueue = DispatchQueue(label: "RawyaAISubtitleScheduler", qos: .utility)) {
     self.extractor = extractor
     self.transcriber = transcriber
     self.translator = translator

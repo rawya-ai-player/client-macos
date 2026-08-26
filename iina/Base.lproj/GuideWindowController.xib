@@ -51,7 +51,7 @@
                                                 <font key="font" metaFont="system"/>
                                             </buttonCell>
                                             <connections>
-                                                <action selector="visitIINAWebsite:" target="-2" id="q4t-Nq-SPV"/>
+                                                <action selector="visitRawyaWebsite:" target="-2" id="q4t-Nq-SPV"/>
                                             </connections>
                                         </button>
                                     </subviews>

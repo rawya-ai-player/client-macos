@@ -16,6 +16,11 @@
 "general.username" = "Ім'я користувача";
 "general.password" = "Пароль";
 "general.na" = "N/A";
+"brand.localized_name" = "";
+"about.overview.tagline" = "Відеопрогравач для macOS із підтримкою штучного інтелекту.";
+"about.overview.website" = "Вебсайт";
+"about.overview.source_code" = "Вихідний код";
+"about.overview.license" = "Rawya — вільне програмне забезпечення з відкритим кодом, випущене за ліцензією GNU GPLv3.";
 
 "input.value_is_empty" = "Значення не може бути порожнім.";
 "input.already_exists" = "Значення вже існує.";
@@ -30,7 +35,7 @@
 "initial.beta.desc" = "Зніміть відмітку «Отримувати бета-оновлення» у розділі налаштувань Параметри → Загальні та встановіть стабільну версію <a href=\"https://rawya.app\">з нашого офіційного веб-сайту</a>.";
 "initial.nightly.desc" = "Нічні (тестові) збірки не рекомендовані для щоденного використання. Наразі нічні збірки не підтримують автоматичні оновлення. Завантажуйте новіші збірки вручну <a href=\"https://rawya.app\">з нашого веб-сайту</a>.";
 "initial.debug.desc" = "Збірки налагодження зазвичай не остаточно оптимізовані, тому не рекомендуються для щоденного використання. Збірки налагодження не підтримують автоматичне оновлення.";
-"initial.bug_report" = "Повідомити про проблему <a href=\"https://github.com/iina/iina/issues\">на GitHub</a>.";
+"initial.bug_report" = "Повідомити про проблему <a href=\"https://github.com/rawya-ai-player/client-macos/issues\">на GitHub</a>.";
 
 // Inspector Window
 "inspector.error" = "Помилка";

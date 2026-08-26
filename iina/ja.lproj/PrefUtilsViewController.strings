@@ -16,9 +16,6 @@
 /* Class = "NSTextFieldCell"; title = "Cleared."; ObjectID = "Fb4-dy-CXX"; */
 "Fb4-dy-CXX.title" = "消去しました。";
 
-/* Class = "NSTextFieldCell"; title = "Open links or current webpage in Rawya with one click. The website must be supported by youtube-dl."; ObjectID = "GAo-fx-NG0"; */
-"GAo-fx-NG0.title" = "ワンクリックでリンク先や今開いているWebページをRawyaで開くことができます。youtube-dlに対応したウェブサイトでのみ動作します。";
-
 /* Class = "NSButtonCell"; title = "OK"; ObjectID = "IkF-qG-s4j"; */
 "IkF-qG-s4j.title" = "OK";
 
@@ -36,9 +33,6 @@
 
 /* Class = "NSButtonCell"; title = "Set Rawya as the Default Application…"; ObjectID = "e1p-Aa-WFG"; */
 "e1p-Aa-WFG.title" = "Rawyaをデフォルトのアプリケーションに設定…";
-
-/* Class = "NSButtonCell"; title = "Firefox"; ObjectID = "f9i-sS-MJN"; */
-"f9i-sS-MJN.title" = "Firefox";
 
 /* Class = "NSButtonCell"; title = "Clear Thumbnail Cache…"; ObjectID = "hsG-JB-TT9"; */
 "hsG-JB-TT9.title" = "サムネイルキャッシュを消去…";
@@ -72,9 +66,3 @@
 
 /* Class = "NSTextFieldCell"; title = "Please select the media types that you want to make Rawya as the default Application for."; ObjectID = "uvK-Y1-dZr"; */
 "uvK-Y1-dZr.title" = "Rawyaをデフォルトの再生アプリケーションに設定したいメディアの種類を選択してください。";
-
-/* Class = "NSButtonCell"; title = "Chrome"; ObjectID = "yuw-2i-ICd"; */
-"yuw-2i-ICd.title" = "Chrome";
-
-/* Class = "NSTextFieldCell"; title = "Get Browser Extensions for Rawya"; ObjectID = "zCe-1f-tkF"; */
-"zCe-1f-tkF.title" = "Rawyaのブラウザ拡張機能を使う";

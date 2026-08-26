@@ -1683,7 +1683,7 @@ class MainWindowController: PlayerWindowController {
       // after having called windowDidFailToExitFullScreen. As we think this is triggered when the
       // app starts terminating we only change fsState to indicate IINA was animating to windowed
       // mode. If this is not done the call to finishAnimating below will trigger a fatal error.
-      log("AppKit exited full screen mode without informing IINA", level: .warning)
+      log("AppKit exited full screen mode without informing Rawya", level: .warning)
       fsState.startAnimatingToWindow()
     }
 
@@ -1800,7 +1800,7 @@ class MainWindowController: PlayerWindowController {
         window.toggleFullScreen(self)
       }
     case let .animating(toFullscreen, legacy, _):
-      let legacyAppKit = legacy ? "IINA" : "AppKit"
+      let legacyAppKit = legacy ? "Rawya" : "AppKit"
       let enteringExiting = toFullscreen ? "entering" : "exiting"
       log("""
         \(legacyAppKit) is currently \(enteringExiting) full screen mode, \

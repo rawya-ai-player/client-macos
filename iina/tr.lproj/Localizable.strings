@@ -16,6 +16,11 @@
 "general.username" = "Kullanıcı Adı";
 "general.password" = "Parola";
 "general.na" = "N/A";
+"brand.localized_name" = "";
+"about.overview.tagline" = "macOS için yapay zekâ destekli video oynatıcı.";
+"about.overview.website" = "Web sitesi";
+"about.overview.source_code" = "Kaynak kodu";
+"about.overview.license" = "Rawya, GNU GPLv3 altında yayımlanan özgür ve açık kaynaklı bir yazılımdır.";
 
 "input.value_is_empty" = "Değer boş olamaz.";
 "input.already_exists" = "Değer halihazırda var.";
@@ -30,7 +35,7 @@
 "initial.beta.desc" = "Lütfen “Ayarlar” → “Genel” sekmesinden “Beta güncellemeleri al” seçeneğini kapatın ve <a href=\"https://rawya.app\">resmi sitemizden</a> kararlı son sürümü indirin.";
 "initial.nightly.desc" = "Gecelik sürüm, günlük kullanım için tavsiye edilmez. Şu anda gecelik yapılar kendiliğinden güncellenmeyi desteklememektedir. Daha yeni yapıları elle <a href=\"https://rawya.app\">gecelik sürüm web sitemizden</a> indirebilirsiniz.";
 "initial.debug.desc" = "Hata ayıklama amaçlı derlenmiş sürümler genellikle performans açısından optimize edilmediğinden günlük olarak kullanılması önerilmez. Hata ayıklama amaçlı sürümler otomatik güncellemeyi desteklemez.";
-"initial.bug_report" = "<a href=\"https://github.com/iina/iina/issues\">GitHub issues</a>. web sitesine raporlayabilirsiniz.";
+"initial.bug_report" = "<a href=\"https://github.com/rawya-ai-player/client-macos/issues\">GitHub issues</a>. web sitesine raporlayabilirsiniz.";
 
 // Inspector Window
 "inspector.error" = "Hata";

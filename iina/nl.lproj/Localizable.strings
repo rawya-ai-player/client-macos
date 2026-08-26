@@ -16,6 +16,11 @@
 "general.username" = "Gebruikersnaam";
 "general.password" = "Wachtwoord";
 "general.na" = "N/A";
+"brand.localized_name" = "";
+"about.overview.tagline" = "AI-aangedreven videospeler voor macOS.";
+"about.overview.website" = "Website";
+"about.overview.source_code" = "Broncode";
+"about.overview.license" = "Rawya is vrije en opensourcesoftware, uitgebracht onder GNU GPLv3.";
 
 "input.value_is_empty" = "Waarde kan niet leeg zijn.";
 "input.already_exists" = "Waarde bestaat al.";
@@ -30,7 +35,7 @@
 "initial.beta.desc" = "Als u wilt teruggaan naar een stabiele versie, vink \"beta updates ontvangen\" uit via Instellingen > Algemeen, en installeer een stabiele release van onze <a href=\"https://rawya.app\">officiële website</a>.";
 "initial.nightly.desc" = "Nightly wordt niet aanbevolen voor dagelijks gebruik. Momenteel ondersteunen nightly builds geen automatische updates. Download handmatig nieuwere builds van onze <a href=\"https://rawya.app\">nightly website</a>.";
 "initial.debug.desc" = "Debug builds zijn meestal niet geoptimaliseerd voor prestaties, dus deze zijn niet aangeraden voor dagelijks gebruik. Debug builds ondersteunen geen automatische updates.";
-"initial.bug_report" = "Rapporteer via <a href=\"https://github.com/iina/iina/issues\">GitHub issues</a>.";
+"initial.bug_report" = "Rapporteer via <a href=\"https://github.com/rawya-ai-player/client-macos/issues\">GitHub issues</a>.";
 
 // Inspector Window
 "inspector.error" = "Fout";

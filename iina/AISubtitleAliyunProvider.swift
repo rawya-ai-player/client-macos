@@ -149,7 +149,7 @@ final class DashScopeTemporaryAISubtitleAliyunAudioPublisher: AISubtitleAliyunAu
       throw AISubtitleError(code: "aliyun_audio_read_failed",
                             message: "The extracted audio chunk could not be read for upload.")
     }
-    let boundary = "IINAAISubtitle-\(UUID().uuidString)"
+    let boundary = "RawyaAISubtitle-\(UUID().uuidString)"
     let filename = "chunk-\(UUID().uuidString).wav"
     let objectKey = credential.upload_dir + "/" + filename
     let fields = [

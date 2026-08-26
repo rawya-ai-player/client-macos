@@ -138,15 +138,15 @@ class InitialWindowController: NSWindowController {
 
     switch infoDict.buildType {
     case .release:
-      versionLabel.stringValue = version
+      versionLabel.stringValue = "\(version) Build \(build)"
     case .beta:
-      versionLabel.stringValue = "\(version) (build \(build))"
+      versionLabel.stringValue = "\(version) Build \(build)"
       betaIndicatorView.isHidden = false
     case .nightly:
-      versionLabel.stringValue = "\(version)+g\(InfoDictionary.shared.shortCommitSHA ?? "")"
+      versionLabel.stringValue = "\(version) Build \(build) · g\(InfoDictionary.shared.shortCommitSHA ?? "")"
       betaIndicatorView.isHidden = false
     case .debug:
-      versionLabel.stringValue = "\(version)+g\(InfoDictionary.shared.shortCommitSHA ?? "")"
+      versionLabel.stringValue = "\(version) Build \(build) · g\(InfoDictionary.shared.shortCommitSHA ?? "")"
       betaIndicatorView.isHidden = false
     }
 

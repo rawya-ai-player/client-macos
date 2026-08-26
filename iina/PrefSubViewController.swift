@@ -140,11 +140,11 @@ class PrefSubViewController: PreferenceViewController, PreferenceWindowEmbeddabl
   }
 
   @IBAction func openSubHelpBtnAction(_ sender: AnyObject) {
-    NSWorkspace.shared.open(URL(string: AppData.wikiLink.appending("/Download-Online-Subtitles#opensubtitles"))!)
+    NSWorkspace.shared.open(URL(string: AppData.upstreamDocumentationLink.appending("/Download-Online-Subtitles#opensubtitles"))!)
   }
 
   @IBAction func assrtHelpBtnAction(_ sender: AnyObject) {
-    NSWorkspace.shared.open(URL(string: AppData.wikiLink.appending("/Download-Online-Subtitles#assrt"))!)
+    NSWorkspace.shared.open(URL(string: AppData.upstreamDocumentationLink.appending("/Download-Online-Subtitles#assrt"))!)
   }
 
   @IBAction func subOverrideHelpBtnAction(_ sender: Any) {

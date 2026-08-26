@@ -16,6 +16,11 @@
 "general.username" = "Όνομα Χρήστη";
 "general.password" = "Κωδικός";
 "general.na" = "N/A";
+"brand.localized_name" = "";
+"about.overview.tagline" = "Πρόγραμμα αναπαραγωγής βίντεο για macOS με τεχνητή νοημοσύνη.";
+"about.overview.website" = "Ιστότοπος";
+"about.overview.source_code" = "Πηγαίος κώδικας";
+"about.overview.license" = "Το Rawya είναι ελεύθερο λογισμικό ανοικτού κώδικα και διανέμεται με την GNU GPLv3.";
 
 "input.value_is_empty" = "Η τιμή δε μπορεί να είναι κενή.";
 "input.already_exists" = "Η τιμή υπάρχει ήδη.";
@@ -30,7 +35,7 @@
 "initial.beta.desc" = "Αν θέλετε να επιστρέψετε σε έκδοση έκδοσης, αποεπιλέξτε το \"λάβετε ενημερώσεις beta\" από τις Ρυθμίσεις > Γενικά, και εγκαταστήστε μια σταθερή έκδοση από την επίσημη ιστοσελίδα μας <a href=\"https://rawya.app\"></a>.";
 "initial.nightly.desc" = "";
 "initial.debug.desc" = "Οι εκδόσεις αποσφαλμάτωσης συνήθως δε βελτιστοποιούνται για την απόδοση, οπότε δε συνιστάται να χρησιμοποιείται ως καθημερινή μονάδα. Οι εκδόσεις αποσφαλμάτωσης δεν υποστηρίζουν την αυτόματη ενημέρωση.";
-"initial.bug_report" = "Αναφορά μέσω <a href=\"https://github.com/iina/iina/issues\">GitHub ζητημάτων</a>.";
+"initial.bug_report" = "Αναφορά μέσω <a href=\"https://github.com/rawya-ai-player/client-macos/issues\">GitHub ζητημάτων</a>.";
 
 // Inspector Window
 "inspector.error" = "Σφάλμα";
