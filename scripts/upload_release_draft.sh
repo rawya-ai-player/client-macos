@@ -71,6 +71,7 @@ gh release create "$tag" \
   "${release_dir}/${zip_name}#Sparkle automatic update" \
   "${release_dir}/${dmg_name}#Manual macOS installer" \
   "${release_dir}/${source_name}#Corresponding source" \
+  "${release_dir}/release-notes.md#Release notes" \
   "${release_dir}/appcast.xml#Sparkle update feed" \
   "${release_dir}/SHA256SUMS#SHA-256 checksums" \
   "${release_dir}/release-info.txt#Release manifest"
