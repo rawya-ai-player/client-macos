@@ -3,6 +3,7 @@ extend-exclude = [
     ".git/",
     "deps/",
     "docs/readme/",
+    "docs/releases/",
     "iina.xcodeproj/",
     "**/*.strings",
 ]
