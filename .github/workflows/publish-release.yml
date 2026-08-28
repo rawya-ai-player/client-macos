@@ -23,7 +23,6 @@ jobs:
     environment: macos-release
     env:
       GH_TOKEN: ${{ github.token }}
-      RELEASE_DIR: ${{ runner.temp }}/rawya-release
     steps:
       - name: Validate tag input
         env:
@@ -59,10 +58,11 @@ jobs:
         env:
           RELEASE_TAG: ${{ inputs.tag }}
         run: |
-          mkdir -p "$RELEASE_DIR"
-          gh release download "$RELEASE_TAG" --dir "$RELEASE_DIR"
-          ./scripts/validate_update_release.sh "$RELEASE_DIR"
-          manifest_revision="$(awk -F= '$1 == "revision" { print $2 }' "$RELEASE_DIR/release-info.txt")"
+          release_dir="$RUNNER_TEMP/rawya-release"
+          mkdir -p "$release_dir"
+          gh release download "$RELEASE_TAG" --dir "$release_dir"
+          ./scripts/validate_update_release.sh "$release_dir"
+          manifest_revision="$(awk -F= '$1 == "revision" { print $2 }' "$release_dir/release-info.txt")"
           if [[ "$manifest_revision" != "$(git rev-parse HEAD)" ]]; then
             echo "Release manifest revision does not match the annotated tag." >&2
             exit 1
@@ -74,7 +74,7 @@ jobs:
             "string(//key[text()='SUPublicEDKey']/following-sibling::string[1])" \
             iina/Info.plist)"
           RAWYA_EXPECTED_SPARKLE_PUBLIC_KEY="$public_key" \
-            ./scripts/verify_sparkle_signatures.sh "$RELEASE_DIR"
+            ./scripts/verify_sparkle_signatures.sh "$RUNNER_TEMP/rawya-release"
 
       - name: Publish approved release
         env:
@@ -87,7 +87,7 @@ jobs:
           for attempt in {1..12}; do
             if curl --fail --location --silent --show-error \
                 --output "$RUNNER_TEMP/public-appcast.xml" "$feed_url"; then
-              cmp "$RELEASE_DIR/appcast.xml" "$RUNNER_TEMP/public-appcast.xml"
+              cmp "$RUNNER_TEMP/rawya-release/appcast.xml" "$RUNNER_TEMP/public-appcast.xml"
               exit 0
             fi
             sleep 5
