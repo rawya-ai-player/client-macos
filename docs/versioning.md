@@ -61,9 +61,10 @@ sequence are expressed by the Git tag and release metadata.
 - Release candidate tag: `rawya-v1.1.0-rc.1`
 - Final tag: `rawya-v1.1.0`
 
-Each pre-release consumes its own build number. Until Rawya has a separately
-validated Sparkle pre-release channel, beta and release-candidate artifacts
-must not be added to the stable appcast.
+Each pre-release consumes its own build number. Rawya currently publishes only
+the stable Sparkle channel. Beta and release-candidate artifacts must not be
+added to the stable appcast or prepared with `prepare_update_release.sh` until
+a separately hosted and validated pre-release channel exists.
 
 ## Git tags and releases
 
@@ -71,7 +72,9 @@ Rawya tags use the `rawya-v` prefix because the repository retains IINA's
 historical `vX.Y.Z` tags for upstream traceability.
 
 - Create annotated tags only from an approved commit on `main`.
-- A final tag must exactly match `rawya-v<MARKETING_VERSION>`.
+- The first final build of a version uses `rawya-v<MARKETING_VERSION>`.
+- A later final build with the same marketing version uses
+  `rawya-v<MARKETING_VERSION>-build<BUILD_NUMBER>`.
 - A pre-release tag must match the formats documented above.
 - Never move, delete, or reuse a published Rawya tag.
 - Use the release title `Rawya <MARKETING_VERSION> (<BUILD_NUMBER>)`.
@@ -83,9 +86,10 @@ historical `vX.Y.Z` tags for upstream traceability.
 | Distribution | Marketing version | Build | Git tag |
 | --- | --- | ---: | --- |
 | First final release | `1.0.0` | `1001` | `rawya-v1.0.0` |
-| First `1.0.1` beta | `1.0.1` | `1002` | `rawya-v1.0.1-beta.1` |
-| Final `1.0.1` | `1.0.1` | `1003` | `rawya-v1.0.1` |
-| Feature release | `1.1.0` | `1004` | `rawya-v1.1.0` |
+| Rebuilt first release | `1.0.0` | `1002` | `rawya-v1.0.0-build1002` |
+| First `1.0.1` beta | `1.0.1` | `1003` | `rawya-v1.0.1-beta.1` |
+| Final `1.0.1` | `1.0.1` | `1004` | `rawya-v1.0.1` |
+| Feature release | `1.1.0` | `1005` | `rawya-v1.1.0` |
 
 If pre-release builds are not distributed, they do not consume build numbers;
 the next distributed artifact uses the next available number.
@@ -104,3 +108,5 @@ Before producing a distributable artifact:
 6. Create the annotated `rawya-v*` tag only after approval.
 7. Verify the app bundle, archive, release title, and appcast metadata before
    publishing the release.
+8. Create an unpublished GitHub draft, then publish it only through the
+   protected `Publish macOS release` workflow after approval.

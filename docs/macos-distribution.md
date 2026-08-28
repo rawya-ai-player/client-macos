@@ -14,6 +14,49 @@ signed and are not distribution artifacts.
 Never commit certificates, private keys, App Store Connect API keys, Apple
 Account passwords, or Sparkle private keys to this repository.
 
+## Application update behavior
+
+Rawya uses Sparkle's stable update channel. The application checks the stable
+appcast once per day by default. Users can disable scheduled checks, change the
+interval, or invoke `Rawya > Check for Updates...` at any time. Automatic
+download and installation is off by default and can be enabled explicitly in
+General preferences. When enabled, Sparkle downloads a verified update in the
+background and installs it when Rawya quits.
+
+Both scheduled and manual checks use:
+
+```text
+https://github.com/rawya-ai-player/client-macos/releases/latest/download/appcast.xml
+```
+
+The latest stable GitHub Release must therefore contain a signed `appcast.xml`
+and the exact ZIP referenced by its signed enclosure. Rawya requires both feed
+validation and archive validation before extraction. Beta updates are
+intentionally not offered until a separately hosted and validated channel
+exists.
+
+## One-time Sparkle key setup
+
+The update signing key is stored in the login keychain under the `rawya`
+account. Generate it only once:
+
+```bash
+SPARKLE_BIN="$HOME/Library/Developer/Rawya/BuildCache/SourcePackages/artifacts/sparkle/Sparkle/bin"
+"$SPARKLE_BIN/generate_keys" --account rawya
+```
+
+`SUPublicEDKey` in `iina/Info.plist` must match the printed public key. Before
+the first public release, export the private key to an encrypted, access-
+controlled backup outside the repository:
+
+```bash
+"$SPARKLE_BIN/generate_keys" --account rawya -x /secure/backup/rawya-sparkle-private-key
+```
+
+Losing this key prevents existing installations from accepting future update
+archives. The release preparation script refuses to continue when the
+keychain key and application public key differ.
+
 ## One-time notarization credential setup
 
 Store credentials in the login keychain under the profile name
@@ -74,11 +117,11 @@ website or GitHub Releases. The DMG is a presentation and transport container;
 it contains the already signed `Rawya.app` and normally an Applications folder
 shortcut. It does not replace the app build.
 
-When Sparkle updates are enabled, publish a notarized ZIP with a Sparkle EdDSA
-signature for the appcast. A public release can therefore have both artifacts:
+Every stable release publishes a notarized ZIP with a Sparkle EdDSA signature
+in the appcast. A public release therefore has both installation formats:
 
-- `Rawya-<version>.dmg` for manual download and drag-to-Applications install.
-- `Rawya-<version>.zip` for Sparkle automatic updates.
+- `Rawya-<version>-<build>.dmg` for manual download and drag-to-Applications install.
+- `Rawya-<version>-<build>.zip` for Sparkle automatic updates.
 
 Local Debug builds only retain the most recent archived app. Distribution
 builds retain the most recent successful notarized build set: its Xcode archive
@@ -106,13 +149,60 @@ Submitting a build for notarization is an external Apple operation. Do it only
 for an approved release candidate or an explicitly approved validation build.
 The explicit environment value prevents an accidental submission.
 
+## Prepare the update release
+
+Create approved Markdown release notes, create an annotated
+`rawya-v<MARKETING_VERSION>` tag on the exact `main` commit used for the first
+build of a version, then prepare the release bundle. A later stable build with
+the same marketing version uses `rawya-v<MARKETING_VERSION>-build<BUILD>` and
+passes that tag through `RAWYA_RELEASE_TAG`:
+
+```bash
+./scripts/prepare_update_release.sh \
+  "$HOME/Library/Developer/Rawya/Distribution/Artifacts/BUILD/Rawya.app" \
+  /path/to/release-notes.md
+
+RAWYA_RELEASE_TAG=rawya-v1.0.0-build1006 \
+  ./scripts/prepare_update_release.sh \
+  "$HOME/Library/Developer/Rawya/Distribution/Artifacts/BUILD/Rawya.app" \
+  /path/to/release-notes.md
+```
+
+The script verifies the Developer ID signature, notarization, Git tag, source
+revision, Sparkle key, archive signature, appcast metadata, DMG, checksums, and
+corresponding-source archive. It produces a new `release-rawya-v*` directory
+next to the notarized app and refuses to overwrite an existing directory.
+
+## Upload and publish
+
+Pushing the annotated tag, creating the GitHub draft, and publishing it are
+separate external actions. After the tag has been approved and pushed, create
+the draft with an explicit confirmation:
+
+```bash
+RAWYA_CONFIRM_GITHUB_DRAFT=CREATE_RAWYA_DRAFT \
+  ./scripts/upload_release_draft.sh /path/to/release-rawya-v1.0.0
+```
+
+The script validates the complete bundle again, verifies the remote annotated
+tag, and uploads all assets as an unpublished GitHub draft. It never publishes
+the release.
+
+Configure the GitHub environment named `macos-release` with required reviewers
+before the first release. An approver can then run the `Publish macOS release`
+workflow with the exact tag. The workflow downloads and validates the draft,
+independently verifies the ZIP and appcast Ed25519 signatures using only the
+public key from the tagged source, publishes it as the latest stable release,
+and confirms that the public `appcast.xml` is byte-for-byte identical to the
+approved asset.
+
 ## Continuous integration
 
-The current GitHub Actions build intentionally uses
-`CODE_SIGNING_ALLOWED=NO`. Its artifact is only a compile-check result and must
-never be uploaded as a Rawya release. Formal signing and notarization remain on
-a trusted Mac until a separate release workflow has encrypted certificate,
-notarization, and Sparkle secrets plus protected-environment approval.
+The normal GitHub Actions build intentionally uses `CODE_SIGNING_ALLOWED=NO`.
+Its artifact is only a compile-check result and must never be uploaded as a
+Rawya release. Formal signing, notarization, and Sparkle signing remain on a
+trusted Mac. The protected release workflow only validates and publishes an
+already prepared GitHub draft, so Apple and Sparkle secrets never enter CI.
 
 ## Release gate
 

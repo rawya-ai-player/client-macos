@@ -134,13 +134,14 @@
                     </connections>
                 </button>
                 <button verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="tUl-6f-ClP">
-                    <rect key="frame" x="120" y="8" width="153" height="16"/>
-                    <buttonCell key="cell" type="check" title="Receive beta updates" bezelStyle="regularSquare" imagePosition="left" state="on" inset="2" id="f0j-Dn-cxt">
+                    <rect key="frame" x="120" y="8" width="251" height="16"/>
+                    <buttonCell key="cell" type="check" title="Automatically download and install updates" bezelStyle="regularSquare" imagePosition="left" inset="2" id="Rwy-Au-Upd">
                         <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
                         <font key="font" metaFont="system"/>
                     </buttonCell>
                     <connections>
-                        <binding destination="IBP-Mz-Maa" name="value" keyPath="values.receiveBetaUpdate" id="hup-g9-DSv"/>
+                        <binding destination="-3" name="enabled" keyPath="delegate.updaterController.updater.allowsAutomaticUpdates" id="Rwy-Au-Enb"/>
+                        <binding destination="-3" name="value" keyPath="delegate.updaterController.updater.automaticallyDownloadsUpdates" id="Rwy-Au-Val"/>
                     </connections>
                 </button>
                 <popUpButton verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="ONF-nX-zDm">
