@@ -1,62 +1,68 @@
 <p align="center">
-  <img src="docs/assets/rawya-mark.svg" width="160" alt="Rawya Logo">
+  <img src="docs/assets/rawya-mark.svg" width="160" alt="Rawya logo">
 </p>
 
 <h1 align="center">Rawya</h1>
 
-<p align="center">简洁、现代的 macOS 本地音视频播放器</p>
+<p align="center">A free, open source macOS player that automatically generates and translates subtitles.</p>
 
 <p align="center">
-  <a href="https://rawya.app">官网</a> ·
-  <a href="https://github.com/rawya-ai-player/client-macos/releases/latest">下载最新版</a> ·
-  <a href="https://github.com/rawya-ai-player/client-macos/issues">问题反馈</a>
+  <strong>English</strong> ·
+  <a href="docs/readme/README.zh.md">简体中文</a> ·
+  <a href="docs/readme/README.zh-hant.md">繁體中文</a> ·
+  <a href="docs/readme/README.ja.md">日本語</a> ·
+  <a href="docs/readme/README.ko.md">한국어</a> ·
+  <a href="docs/readme/README.es.md">Español</a> ·
+  <a href="docs/readme/README.fr.md">Français</a> ·
+  <a href="docs/readme/README.de.md">Deutsch</a> ·
+  <a href="docs/readme/README.pt.md">Português</a> ·
+  <a href="docs/readme/README.ru.md">Русский</a> ·
+  <a href="docs/readme/README.ar.md">العربية</a>
 </p>
 
-## 简介
+<p align="center">
+  <a href="https://rawya.app">Website</a> ·
+  <a href="https://github.com/rawya-ai-player/client-macos/releases/latest">Download</a> ·
+  <a href="https://github.com/rawya-ai-player/client-macos/issues">Issues</a>
+</p>
 
-Rawya 专注于 macOS 本地媒体播放体验，提供清晰易用的操作界面，同时保留面向进阶用户的播放与显示设置。
+## What is Rawya?
 
-## 主要功能
+Rawya is a native macOS media player for people who watch videos in different languages. It can generate subtitles from speech and translate them into the language you read, while keeping the playback experience simple.
 
-- 播放常见视频和音频格式
-- 字幕、播放列表和章节管理
-- 画中画与音乐模式
-- 视频缩略图和播放历史
-- 音频、视频与字幕参数调整
-- 自定义键盘、鼠标、触控板和手势操作
-- 支持高级播放配置与扩展能力
+## Highlights
 
-## 系统要求
+- Automatically generate and translate subtitles in multiple languages
+- Show completed subtitles while the rest of the video is still being processed
+- Process audio locally with Apple AI on supported Macs
+- Play common video and audio formats
+- Manage subtitles, playlists, chapters, picture-in-picture, and playback history
+- Customize video, audio, subtitle, keyboard, mouse, trackpad, and gesture controls
 
-- Intel Mac：macOS 10.15 或更高版本
-- Apple 芯片 Mac：macOS 12 或更高版本
+## Requirements
 
-## 下载
+- Apple local AI subtitles: macOS 26 or later
+- Basic playback on Apple silicon: macOS 12 or later
+- Basic playback on Intel Mac: macOS 10.15 or later
 
-从 [GitHub Releases](https://github.com/rawya-ai-player/client-macos/releases/latest) 下载最新版 DMG，打开后将 Rawya 拖入“应用程序”文件夹。正式版本使用 Developer ID 签名并经过 Apple 公证。
+## Download
 
-开发构建仅用于本地测试，不建议直接作为正式分发版本。
+Download the latest DMG from [GitHub Releases](https://github.com/rawya-ai-player/client-macos/releases/latest), open it, and drag Rawya into Applications. Stable builds are signed with Developer ID and notarized by Apple.
 
-## 更新
+## Updates
 
-Rawya 默认每天自动检查一次稳定版更新，也可以随时通过菜单中的“检查更新…”手动检查。在“设置 > 通用”中启用“自动下载并安装更新”后，经过签名验证的新版本会在后台下载，并在退出 Rawya 时安装。
+Rawya checks for stable updates automatically once a day. You can also choose **Check for Updates…** from the application menu at any time. Enable **Automatically download and install updates** in **Settings > General** to download verified updates in the background and install them when Rawya quits.
 
-自动更新与手动下载安装使用相同的稳定版 Release。每个正式版本同时提供对应源码和 SHA-256 校验文件。
+Automatic updates and manual downloads use the same stable GitHub Release. Every stable release also includes its source archive and SHA-256 checksum files.
 
-## 本地构建
+## Build locally
 
-1. 安装最新版 Xcode。
-2. 下载项目依赖：
+1. Install the latest Xcode.
+2. Download dependencies with `./other/download_libs.sh`.
+3. Open the repository's `.xcodeproj` in Xcode and build the main app scheme.
 
-   ```bash
-   ./other/download_libs.sh
-   ```
+See the [versioning strategy](docs/versioning.md), [macOS distribution guide](docs/macos-distribution.md), and [upstream release strategy](docs/upstream-release-strategy.md) for maintainer workflows.
 
-3. 使用 Xcode 打开仓库中的 `.xcodeproj` 工程。
-4. 选择主应用 Scheme 和目标架构后执行构建。
+## License
 
-Rawya 产品版本从 `1.0.0` 开始独立演进，构建号从 `1001` 全局递增；具体约定见[版本与构建号策略](docs/versioning.md)。Developer ID 签名、公证与分发流程见[macOS 分发指南](docs/macos-distribution.md)。当前 IINA 上游基线为 `v1.4.4`，后续升级约定见[上游版本策略](docs/upstream-release-strategy.md)。
-
-## 许可证
-
-本项目采用 [GNU General Public License v3.0](LICENSE) 许可证。项目包含的第三方代码、库和资源保留其各自的版权声明与许可条款。
+Rawya is licensed under the [GNU General Public License v3.0](LICENSE). Third-party code, libraries, and assets retain their respective notices and licenses.
