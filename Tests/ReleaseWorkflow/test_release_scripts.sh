@@ -7,6 +7,11 @@ fixture_dir="$(mktemp -d "${TMPDIR:-/tmp}/rawya-release-test.XXXXXX")"
 trap 'rm -rf "$fixture_dir"' EXIT
 
 bash -n "${repo_root}/scripts/download_pinned_build_dependencies.sh"
+if ! grep -Fq '"${release_dir}/release-notes.md#Release notes"' \
+    "${repo_root}/scripts/upload_release_draft.sh"; then
+  echo "GitHub release upload is missing release-notes.md." >&2
+  exit 1
+fi
 manifest="${repo_root}/Configs/IINA-v1.4.4-build-libraries.txt"
 manifest_entries="$(wc -l < "$manifest" | tr -d ' ')"
 unique_manifest_entries="$(sort -u "$manifest" | wc -l | tr -d ' ')"

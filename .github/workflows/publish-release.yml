@@ -35,7 +35,7 @@ jobs:
 
       - uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.tag }}
+          ref: main
           fetch-depth: 0
 
       - name: Verify annotated tag and draft state
@@ -63,7 +63,8 @@ jobs:
           gh release download "$RELEASE_TAG" --dir "$release_dir"
           ./scripts/validate_update_release.sh "$release_dir"
           manifest_revision="$(awk -F= '$1 == "revision" { print $2 }' "$release_dir/release-info.txt")"
-          if [[ "$manifest_revision" != "$(git rev-parse HEAD)" ]]; then
+          tag_revision="$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")"
+          if [[ "$manifest_revision" != "$tag_revision" ]]; then
             echo "Release manifest revision does not match the annotated tag." >&2
             exit 1
           fi
