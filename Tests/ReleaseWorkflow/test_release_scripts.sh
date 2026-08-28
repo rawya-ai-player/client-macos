@@ -6,6 +6,15 @@ repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
 fixture_dir="$(mktemp -d "${TMPDIR:-/tmp}/rawya-release-test.XXXXXX")"
 trap 'rm -rf "$fixture_dir"' EXIT
 
+bash -n "${repo_root}/scripts/download_pinned_build_dependencies.sh"
+manifest="${repo_root}/Configs/IINAv1.4.4BuildLibraries.txt"
+manifest_entries="$(wc -l < "$manifest" | tr -d ' ')"
+unique_manifest_entries="$(sort -u "$manifest" | wc -l | tr -d ' ')"
+if [[ "$unique_manifest_entries" != "$manifest_entries" ]]; then
+  echo "Pinned build dependency manifest contains duplicate entries." >&2
+  exit 1
+fi
+
 version="9.8.7"
 build="9876"
 tag="rawya-v${version}"

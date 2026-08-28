@@ -204,6 +204,11 @@ Rawya release. Formal signing, notarization, and Sparkle signing remain on a
 trusted Mac. The protected release workflow only validates and publishes an
 already prepared GitHub draft, so Apple and Sparkle secrets never enter CI.
 
+CI obtains native libraries from the checksum-pinned official IINA `v1.4.4`
+DMG through `scripts/download_pinned_build_dependencies.sh`. Do not switch CI
+back to IINA's moving `dylibs/universal/filelist.txt`; that endpoint tracks the
+latest upstream ABI and can stop matching Rawya's pinned source baseline.
+
 ## Release gate
 
 Before publishing a GitHub Release or updating the Sparkle appcast, confirm:
