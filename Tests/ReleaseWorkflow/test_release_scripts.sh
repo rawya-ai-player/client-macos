@@ -29,7 +29,10 @@ printf '# Release notes\n' > "${fixture_dir}/release-notes.md"
 zip_length="$(stat -f '%z' "${fixture_dir}/${zip_name}")"
 
 write_fixture() {
-  cat > "${fixture_dir}/appcast.xml" <<EOF
+  local version_format="${1:-attribute}"
+
+  if [[ "$version_format" == "attribute" ]]; then
+    cat > "${fixture_dir}/appcast.xml" <<EOF
 <?xml version="1.0" encoding="utf-8"?>
 <rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
   <channel>
@@ -50,6 +53,32 @@ edSignature: fixture-feed-signature
 length: 1
 -->
 EOF
+  elif [[ "$version_format" == "element" ]]; then
+    cat > "${fixture_dir}/appcast.xml" <<EOF
+<?xml version="1.0" encoding="utf-8"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+  <channel>
+    <item>
+      <title>Rawya ${version}</title>
+      <sparkle:version>${build}</sparkle:version>
+      <sparkle:shortVersionString>${version}</sparkle:shortVersionString>
+      <enclosure
+        url="https://github.com/rawya-ai-player/client-macos/releases/download/${tag}/${zip_name}"
+        length="${zip_length}"
+        type="application/octet-stream"
+        sparkle:edSignature="fixture-signature"/>
+    </item>
+  </channel>
+</rss>
+<!-- sparkle-signatures:
+edSignature: fixture-feed-signature
+length: 1
+-->
+EOF
+  else
+    echo "Unknown appcast version format: ${version_format}" >&2
+    exit 1
+  fi
 
   cat > "${fixture_dir}/release-info.txt" <<EOF
 version=${version}
@@ -77,4 +106,8 @@ write_fixture
 
 tag="rawya-v${version}-build${build}"
 write_fixture
+"${repo_root}/scripts/validate_update_release.sh" "$fixture_dir"
+
+tag="rawya-v${version}"
+write_fixture element
 "${repo_root}/scripts/validate_update_release.sh" "$fixture_dir"

@@ -119,7 +119,18 @@ if [[ "$feed_signature_block" != *"edSignature:"* ||
   exit 1
 fi
 xpath_string() {
-  xmllint --xpath "string((//item/enclosure)[1]/@*[local-name()='${1}'])" "$appcast_path"
+  local name="$1"
+  local value
+
+  value="$(xmllint --xpath \
+    "string((//item/enclosure)[1]/@*[local-name()='${name}'])" \
+    "$appcast_path")"
+  if [[ -z "$value" ]]; then
+    value="$(xmllint --xpath \
+      "string(((//item)[1]/*[local-name()='${name}'])[1])" \
+      "$appcast_path")"
+  fi
+  printf '%s' "$value"
 }
 
 appcast_build="$(xpath_string version)"
