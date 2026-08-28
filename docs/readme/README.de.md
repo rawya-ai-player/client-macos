@@ -33,7 +33,7 @@ Lade das aktuelle DMG von [GitHub Releases](https://github.com/rawya-ai-player/c
 
 Rawya sucht einmal täglich automatisch nach stabilen Updates. Du kannst außerdem jederzeit im Anwendungsmenü **Nach Updates suchen…** auswählen. Aktiviere unter **Einstellungen > Allgemein** die Option **Updates automatisch laden und installieren**, damit geprüfte Updates im Hintergrund geladen und beim Beenden von Rawya installiert werden.
 
-Automatische Updates und manuelle Downloads verwenden dasselbe stabile GitHub Release. Jede stabile Version enthält außerdem das Quellcodearchiv und SHA-256-Prüfsummendateien.
+Automatische Updates und manuelle Downloads verwenden dasselbe stabile GitHub Release. GitHub stellt außerdem Quellcodearchive für jede stabile Version bereit.
 
 ## Lokal bauen
 

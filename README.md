@@ -53,7 +53,7 @@ Download the latest DMG from [GitHub Releases](https://github.com/rawya-ai-playe
 
 Rawya checks for stable updates automatically once a day. You can also choose **Check for Updates…** from the application menu at any time. Enable **Automatically download and install updates** in **Settings > General** to download verified updates in the background and install them when Rawya quits.
 
-Automatic updates and manual downloads use the same stable GitHub Release. Every stable release also includes its source archive and SHA-256 checksum files.
+Automatic updates and manual downloads use the same stable GitHub Release. GitHub also provides source archives for every stable version.
 
 ## Build locally
 
