@@ -225,7 +225,7 @@ final class AISubtitleWhisperProcessRunner: AISubtitleWhisperCommandRunning {
   private var processes: [UUID: Process] = [:]
   private var canceled = false
 
-  init(queue: DispatchQueue = DispatchQueue(label: "IINAAISubtitleWhisperProcess", qos: .utility)) {
+  init(queue: DispatchQueue = DispatchQueue(label: "RawyaAISubtitleWhisperProcess", qos: .utility)) {
     self.queue = queue
   }
 

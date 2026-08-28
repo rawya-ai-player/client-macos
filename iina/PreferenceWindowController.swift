@@ -34,12 +34,20 @@ protocol PreferenceWindowEmbeddable where Self: NSViewController {
   var preferenceTabTitle: String { get }
   var preferenceTabImage: NSImage { get }
   var preferenceContentIsScrollable: Bool { get }
+  var preferenceSearchSections: [String: [String]]? { get }
+  func preferenceViewDidOpen()
 }
 
 extension PreferenceWindowEmbeddable {
   var preferenceContentIsScrollable: Bool {
     return true
   }
+
+  var preferenceSearchSections: [String: [String]]? {
+    return nil
+  }
+
+  func preferenceViewDidOpen() {}
 }
 
 class CustomCellView: NSTableCellView {
@@ -138,7 +146,7 @@ class PreferenceWindowController: NSWindowController {
   private var lastString: String = ""
   private var currentCompletionResults: [Trie.ReturnValue] = []
 
-  private let indexingQueue = DispatchQueue(label: "IINAPreferenceIndexingTask", qos: .userInitiated)
+  private let indexingQueue = DispatchQueue(label: "RawyaPreferenceIndexingTask", qos: .userInitiated)
   private var isIndexing: Bool = true
   
   enum Action {
@@ -217,8 +225,13 @@ class PreferenceWindowController: NSWindowController {
     if IINA_ENABLE_PLUGIN_SYSTEM {
       viewMap.insert(["plugins", "PrefPluginViewController"], at: 8)
     }
-    let labelDict = [String: [String: [String]]](
+    var labelDict = [String: [String: [String]]](
       uniqueKeysWithValues: viewMap.map { (NSLocalizedString("preference.\($0[0])", comment: ""), self.getLabelDict(inNibNamed: $0[1])) })
+    for viewController in viewControllers {
+      if let searchSections = viewController.preferenceSearchSections {
+        labelDict[viewController.preferenceTabTitle] = searchSections
+      }
+    }
 
 #if DEBUG
     // As the following call emits a lot of messages that are only needed when debugging the NIB
@@ -320,6 +333,7 @@ class PreferenceWindowController: NSWindowController {
     // visible tab. Although the window's title is hidden it still can be seen in the Window menu
     // and in the dock menu.
     vc.view.window?.title = vc.preferenceTabTitle
+    vc.preferenceViewDidOpen()
     return vc
   }
 

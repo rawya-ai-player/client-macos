@@ -16,6 +16,11 @@
 "general.username" = "שם משתמש";
 "general.password" = "סיסמה";
 "general.na" = "N/A";
+"brand.localized_name" = "";
+"about.overview.tagline" = "נגן וידאו מבוסס בינה מלאכותית עבור macOS.";
+"about.overview.website" = "אתר";
+"about.overview.source_code" = "קוד מקור";
+"about.overview.license" = "Rawya היא תוכנה חופשית ובקוד פתוח, המופצת תחת GNU GPLv3.";
 
 "input.value_is_empty" = "הערך לא יכול להיות ריק.";
 "input.already_exists" = "הערך כבר קיים.";
@@ -30,7 +35,7 @@
 "initial.beta.desc" = "אם ברצונך לחזור לגרסה הרגילה, הסר את הסימון \"קבל עדכוני בטא\" בהגדרות > כללי, והתקן את הגרסה הרגילה מ<a href=\"https://rawya.app\">האתר הרשמי</a> שלנו.";
 "initial.nightly.desc" = "בניה לילית לא מומלצת לשימוש יומיומי. כרגע, בנייה לילית לא תומכת בעדכון אוטומטי. אנא הורד באופן ידני בניה עדכנית מ<a href=\"https://rawya.app\">האתר</a> שלנו.";
 "initial.debug.desc" = "בניית ניפוי באגים בדרך כלל אינה מותאמת לטובת ביצועים, ולכן אינה מומלצת לשימוש יומיומי. בניית ניפוי באגים לא תומכת בעדכון אוטומטי.";
-"initial.bug_report" = "דווח באמצעות <a href=\"https://github.com/iina/iina/issues\">בעיות GitHub</a>.";
+"initial.bug_report" = "דווח באמצעות <a href=\"https://github.com/rawya-ai-player/client-macos/issues\">בעיות GitHub</a>.";
 
 // Inspector Window
 "inspector.error" = "שגיאה";

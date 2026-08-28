@@ -16,6 +16,11 @@
 "general.username" = "Korisničko ime";
 "general.password" = "Lozinka";
 "general.na" = "N/A";
+"brand.localized_name" = "";
+"about.overview.tagline" = "Video reproduktor za macOS s umjetnom inteligencijom.";
+"about.overview.website" = "Web-mjesto";
+"about.overview.source_code" = "Izvorni kod";
+"about.overview.license" = "Rawya je slobodan softver otvorenog koda, objavljen pod licencom GNU GPLv3.";
 
 "input.value_is_empty" = "Vrijednost ne smije biti prazna.";
 "input.already_exists" = "Vrijednosti već postoji.";
@@ -30,7 +35,7 @@
 "initial.beta.desc" = "Ako se želiš vratiti na stariju verziju izdanja, odznači opciju „Primaj aktualiziranja za beta verzije” u Postavke > Općenito i instaliraj stabilno izdanje s naše <a href=\"https://rawya.app\">službene web stranice</a>.";
 "initial.nightly.desc" = "Ne preporučujemo noćna izdanja za svakodnevnu upotrebu. Noćne izgradnje trenutačno ne podržavaju automatsko aktualiziranje. Preuzmi novije izgradnje s naše <a href=\"https://rawya.app\">web stranice noćnih izdanja</a>.";
 "initial.debug.desc" = "Izdanja za otklanjanje grešaka obično nisu optimizirane za performanse, stoga se ne preporučuje njihova svakodnevna upotreba. Izdanja za otklanjanje grešaka ne podržavaju automatsko aktualiziranje.";
-"initial.bug_report" = "Prijavi na stranici <a href=\"https://github.com/iina/iina/issues\">GitHub issues</a>.";
+"initial.bug_report" = "Prijavi na stranici <a href=\"https://github.com/rawya-ai-player/client-macos/issues\">GitHub issues</a>.";
 
 // Inspector Window
 "inspector.error" = "Greška";

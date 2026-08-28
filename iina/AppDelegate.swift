@@ -80,6 +80,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
       PrefUIViewController(),
       PrefCodecViewController(),
       PrefSubViewController(),
+      PrefAISubtitleViewController(),
       PrefNetworkViewController(),
       PrefControlViewController(),
       PrefKeyBindingViewController(),
@@ -190,7 +191,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
   @IBOutlet var updaterController: SPUStandardUpdaterController!
 
   func feedURLString(for updater: SPUUpdater) -> String? {
-    return Preference.bool(for: .receiveBetaUpdate) ? AppData.appcastBetaLink : AppData.appcastLink
+    return AppData.appcastLink
   }
 
   // MARK: - App Delegate
@@ -203,10 +204,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
       UserDefaults.standard.addObserver(self, forKeyPath: key.rawValue, options: .new, context: nil)
     }
 
-    // Start the log file by logging the version of IINA producing the log file.
+    // Start the log file by logging the version of Rawya producing the log file.
     let (version, build) = InfoDictionary.shared.version
     let type = InfoDictionary.shared.buildTypeIdentifier
-    Logger.log("IINA \(version) Build \(build)" + (type == nil ? "" : " " + type!))
+    Logger.log("Rawya \(version) Build \(build)" + (type == nil ? "" : " " + type!))
 
     // The copyright is used in the Finder "Get Info" window which is a narrow window so the
     // copyright consists of multiple lines.
@@ -322,10 +323,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
     Logger.log("Filenames from args: \(iinaArgFilenames)")
     Logger.log("Derived mpv properties from args: \(commandLineStatus.mpvArguments)")
 
-    print("IINA \(version) Build \(build)")
+    print("Rawya \(version) Build \(build)")
 
     guard !iinaArgFilenames.isEmpty || commandLineStatus.isStdin else {
-      print("This binary is not intended for being used as a command line tool. Please use the bundled iina-cli.")
+      print("This binary is not intended for command-line use. Please use Rawya's bundled command-line helper.")
       print("Please ignore this message if you are running in a debug environment.")
       return
     }
@@ -988,7 +989,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
   }
 
   @IBAction func helpAction(_ sender: AnyObject) {
-    NSWorkspace.shared.open(URL(string: AppData.wikiLink)!)
+    NSWorkspace.shared.open(URL(string: AppData.helpLink)!)
   }
 
   @IBAction func githubAction(_ sender: AnyObject) {
@@ -1009,7 +1010,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
     }
 
     let alert = NSAlert()
-    let path = NSString(string: "~/Downloads/iina-debug-dump-\(Date.timeIntervalSinceReferenceDate).txt").expandingTildeInPath
+    let path = NSString(string: "~/Downloads/rawya-debug-dump-\(Date.timeIntervalSinceReferenceDate).txt").expandingTildeInPath
     let url = URL(fileURLWithPath: path)
     FileManager.default.createFile(atPath: path, contents: nil)
     guard let handle = try? FileHandle(forWritingTo: url) else {

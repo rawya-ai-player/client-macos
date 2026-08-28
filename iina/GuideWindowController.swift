@@ -9,7 +9,7 @@
 import Cocoa
 @preconcurrency import WebKit
 
-fileprivate let highlightsLink = "https://iina.io/highlights"
+fileprivate let highlightsLink = "\(AppData.websiteLink)/highlights"
 
 class GuideWindowController: NSWindowController {
   override var windowNibName: NSNib.Name {
@@ -55,7 +55,7 @@ class GuideWindowController: NSWindowController {
     window?.close()
   }
 
-  @IBAction func visitIINAWebsite(_ sender: Any) {
+  @IBAction func visitRawyaWebsite(_ sender: Any) {
     NSWorkspace.shared.open(URL(string: AppData.websiteLink)!)
   }
 }
@@ -63,7 +63,7 @@ class GuideWindowController: NSWindowController {
 extension GuideWindowController: WKNavigationDelegate {
   func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
     if let url = navigationAction.request.url {
-      if url.absoluteString.starts(with: "https://iina.io/highlights/") {
+      if url.absoluteString.starts(with: "\(highlightsLink)/") {
         decisionHandler(.allow)
         return
       } else {

@@ -16,6 +16,11 @@
 "general.username" = "نام کاربری";
 "general.password" = "رمز عبور";
 "general.na" = "N/A";
+"brand.localized_name" = "";
+"about.overview.tagline" = "پخش‌کنندهٔ ویدیوی مبتنی بر هوش مصنوعی برای macOS.";
+"about.overview.website" = "وب‌سایت";
+"about.overview.source_code" = "کد منبع";
+"about.overview.license" = "Rawya نرم‌افزاری آزاد و متن‌باز است که تحت مجوز GNU GPLv3 منتشر می‌شود.";
 
 "input.value_is_empty" = "مقدار نمی تواند خالی باشد.";
 "input.already_exists" = "مقدار از قبل وجود دارد.";
@@ -30,7 +35,7 @@
 "initial.beta.desc" = "تیک گزینه‌ی “دریافت بروزرسانی‌های بتا” را از بخش تنظیمات - عمومی بردارید و یک نسخه‌ی پایدار را از <a href=\"https://rawya.app\">سایت رسمی ما</a> نصب کنید.";
 "initial.nightly.desc" = "نسخه‌های «بیلد شبانه» برای استفاده روزمره پیشنهاد نمی‌شود. این نسخه‌ها درحال حاضر از بروزرسانی خودکار پشتیبانی نمی‌کنند. لطفا برای دریافت دستی جدیدترین بروزرسانی این نسخه‌ها، به <a href=\"https://rawya.app\"> وبسایت ما</a> مراجعه فرمایید.";
 "initial.debug.desc" = "نسخه‌های دیباگ معمولا به‌طور کامل بهینه‌سازی نشده‌اند، پس برای استفاده روزمره پیشنهاد نمی‌شوند. نسخه‌های دیباگ از بروزرسانی خودکار نیز پیشتیبانی نمی‌کنند.";
-"initial.bug_report" = "مشکلات را از طریق بخش <a href=\"https://github.com/iina/iina/issues\">GitHub issues</a> با ما در میان بگذارید.";
+"initial.bug_report" = "مشکلات را از طریق بخش <a href=\"https://github.com/rawya-ai-player/client-macos/issues\">GitHub issues</a> با ما در میان بگذارید.";
 
 // Inspector Window
 "inspector.error" = "خطا";

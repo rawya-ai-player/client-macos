@@ -487,7 +487,7 @@ extension MainMenuActionHandler {
   }
 
   @objc func menuShowAISubtitlePanel(_ sender: NSMenuItem) {
-    player.showAISubtitlePanel()
+    player.showAISubtitleSettings()
   }
 
   @objc func menuStopAISubtitles(_ sender: NSMenuItem) {

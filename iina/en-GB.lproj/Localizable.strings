@@ -16,6 +16,11 @@
 "general.username" = "Username";
 "general.password" = "Password";
 "general.na" = "N/A";
+"brand.localized_name" = "";
+"about.overview.tagline" = "AI-powered video player for macOS.";
+"about.overview.website" = "Website";
+"about.overview.source_code" = "Source Code";
+"about.overview.license" = "Rawya is free and open-source software, released under GNU GPLv3.";
 
 "input.value_is_empty" = "Value cannot be empty.";
 "input.already_exists" = "Value already exists.";
@@ -30,7 +35,7 @@
 "initial.beta.desc" = "If you want to rollback to a release version, uncheck \"receive beta updates\" from Settings > General, and install a stable release from our <a href=\"https://rawya.app\">official website</a>.";
 "initial.nightly.desc" = "Nightly is not recommended as your daily driver. Currently, nightly builds do not support auto update. Please manually download newer builds from our <a href=\"https://rawya.app\">nightly website</a>.";
 "initial.debug.desc" = "Debug builds are usually not optimized for performance, so it is not recommended to be used as a daily drive. Debug builds do not support auto update.";
-"initial.bug_report" = "Report via <a href=\"https://github.com/iina/iina/issues\">GitHub issues</a>.";
+"initial.bug_report" = "Report via <a href=\"https://github.com/rawya-ai-player/client-macos/issues\">GitHub issues</a>.";
 
 // Inspector Window
 "inspector.error" = "Error";
@@ -311,7 +316,7 @@
 "alert.choose_media_file.title" = "Choose Media Files";
 
 "alert.add_url.title" = "Add URL";
-"alert.add_url.message" = "Please enter the URLhttps://iina. io/download/:";
+"alert.add_url.message" = "Please enter the URL:";
 
 "alert.delete_history.title" = "Delete Playback History";
 "alert.delete_history.message" = "Are you sure to delete selected entries?";

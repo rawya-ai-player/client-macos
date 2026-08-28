@@ -19,23 +19,39 @@ class KeychainAccess {
   struct ServiceName: RawRepresentable {
     typealias RawValue = String
     var rawValue: String
+    var legacyRawValues: [String]
 
     init(rawValue: String) {
       self.rawValue = rawValue
+      self.legacyRawValues = []
+    }
+
+    init(rawValue: String, legacyRawValues: [String]) {
+      self.rawValue = rawValue
+      self.legacyRawValues = legacyRawValues
     }
 
     init(_ rawValue: String) {
       self.init(rawValue: rawValue)
     }
 
-    static let openSubAccount = ServiceName(rawValue: "IINA OpenSubtitles Account")
-    static let httpAuth = ServiceName(rawValue: "IINA Saved HTTP Password")
+    static let openSubAccount = ServiceName(
+      rawValue: "Rawya OpenSubtitles Account",
+      legacyRawValues: ["IINA OpenSubtitles Account"]
+    )
+    static let httpAuth = ServiceName(
+      rawValue: "Rawya Saved HTTP Password",
+      legacyRawValues: ["IINA Saved HTTP Password"]
+    )
   }
 
   static func write(username: String, password: String, forService serviceName: ServiceName, server: String? = nil, port: Int? = nil) throws {
     let status: OSStatus
 
-    if let _ = try? read(username: username, forService: serviceName, server: nil, port: nil) {
+    if let _ = try? readExact(username: username,
+                              serviceRawValue: serviceName.rawValue,
+                              server: server,
+                              port: port) {
 
       // if password exists, try to update the password
       var query: [String: Any] = [kSecAttrService as String: serviceName.rawValue]
@@ -64,16 +80,43 @@ class KeychainAccess {
       status = SecItemAdd(query as CFDictionary, nil)
     }
 
-    // check result
-    guard status != errSecItemNotFound else { throw KeychainError.noResult }
-    guard status == errSecSuccess else {
-      let message = (SecCopyErrorMessageString(status, nil) as String?) ?? ""
-      throw KeychainError.unhandledError(message: message)
+    try check(status)
+    for legacyRawValue in serviceName.legacyRawValues {
+      try? deleteExact(username: username,
+                       serviceRawValue: legacyRawValue,
+                       server: server,
+                       port: port)
     }
   }
 
   static func read(username: String?, forService serviceName: ServiceName, server: String? = nil, port: Int? = nil) throws -> (username: String, password: String) {
-    var query: [String: Any] = [kSecAttrService as String: serviceName.rawValue,
+    do {
+      return try readExact(username: username,
+                           serviceRawValue: serviceName.rawValue,
+                           server: server,
+                           port: port)
+    } catch KeychainError.noResult {
+      for legacyRawValue in serviceName.legacyRawValues {
+        guard let credentials = try? readExact(username: username,
+                                               serviceRawValue: legacyRawValue,
+                                               server: server,
+                                               port: port) else { continue }
+        try write(username: credentials.username,
+                  password: credentials.password,
+                  forService: serviceName,
+                  server: server,
+                  port: port)
+        return credentials
+      }
+      throw KeychainError.noResult
+    }
+  }
+
+  private static func readExact(username: String?,
+                                serviceRawValue: String,
+                                server: String?,
+                                port: Int?) throws -> (username: String, password: String) {
+    var query: [String: Any] = [kSecAttrService as String: serviceRawValue,
                                 kSecMatchLimit as String: kSecMatchLimitOne,
                                 kSecReturnAttributes as String: true,
                                 kSecReturnData as String: true]
@@ -86,11 +129,7 @@ class KeychainAccess {
     // initiate the search
     var item: CFTypeRef?
     let status = SecItemCopyMatching(query as CFDictionary, &item)
-    guard status != errSecItemNotFound else { throw KeychainError.noResult }
-    guard status == errSecSuccess else {
-      let message = (SecCopyErrorMessageString(status, nil) as String?) ?? ""
-      throw KeychainError.unhandledError(message: message)
-    }
+    try check(status)
 
     // get data
     guard let existingItem = item as? [String : Any],
@@ -107,7 +146,23 @@ class KeychainAccess {
                      forService serviceName: ServiceName,
                      server: String? = nil,
                      port: Int? = nil) throws {
-    var query: [String: Any] = [kSecAttrService as String: serviceName.rawValue]
+    try deleteExact(username: username,
+                    serviceRawValue: serviceName.rawValue,
+                    server: server,
+                    port: port)
+    for legacyRawValue in serviceName.legacyRawValues {
+      try deleteExact(username: username,
+                      serviceRawValue: legacyRawValue,
+                      server: server,
+                      port: port)
+    }
+  }
+
+  private static func deleteExact(username: String?,
+                                  serviceRawValue: String,
+                                  server: String?,
+                                  port: Int?) throws {
+    var query: [String: Any] = [kSecAttrService as String: serviceRawValue]
     if let username = username { query[kSecAttrAccount as String] = username }
     if let server = server { query[kSecAttrServer as String] = server }
     if let port = port { query[kSecAttrPort as String] = port }
@@ -116,6 +171,14 @@ class KeychainAccess {
       : kSecClassInternetPassword
     let status = SecItemDelete(query as CFDictionary)
     guard status == errSecSuccess || status == errSecItemNotFound else {
+      let message = (SecCopyErrorMessageString(status, nil) as String?) ?? ""
+      throw KeychainError.unhandledError(message: message)
+    }
+  }
+
+  private static func check(_ status: OSStatus) throws {
+    guard status != errSecItemNotFound else { throw KeychainError.noResult }
+    guard status == errSecSuccess else {
       let message = (SecCopyErrorMessageString(status, nil) as String?) ?? ""
       throw KeychainError.unhandledError(message: message)
     }

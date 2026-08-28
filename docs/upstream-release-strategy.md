@@ -3,6 +3,9 @@
 Rawya is maintained on a stable `main` branch. Upstream updates are based on
 immutable IINA release tags, not on IINA's `develop` branch.
 
+Rawya's product version is independent from the IINA base version. See
+[`versioning.md`](versioning.md) for the release and build-number policy.
+
 ## Current base
 
 - Upstream repository: `https://github.com/iina/iina.git`

@@ -16,6 +16,11 @@
 "general.username" = "Nom d'usuari";
 "general.password" = "Contrasenya";
 "general.na" = "N/A";
+"brand.localized_name" = "";
+"about.overview.tagline" = "Reproductor de vídeo per a macOS amb intel·ligència artificial.";
+"about.overview.website" = "Lloc web";
+"about.overview.source_code" = "Codi font";
+"about.overview.license" = "Rawya és programari lliure i de codi obert, publicat sota la GNU GPLv3.";
 
 "input.value_is_empty" = "El valor no pot estar buit.";
 "input.already_exists" = "El valor ja existeix.";
@@ -30,7 +35,7 @@
 "initial.beta.desc" = "Si vols tornar a una versió de llançament, desmarca “rebre actualitzacions beta” a Configuració > General i instal·la una versió estable des del nostre lloc  <a href=\"https://rawya.app\">web oficial</a>.";
 "initial.nightly.desc" = "La versió Nightly no es recomana com a versió d’ús diari. Actualment, les compilacions Nightly no admeten l’actualització automàtica. Si us plau, descarrega manualment les versions més recents des del nostre  <a href=\"https://rawya.app\">web de nightly</a>.";
 "initial.debug.desc" = "Debug builds are usually not optimized for performance, so it is not recommended to be used as daily drive. Debug builds do not support auto update.";
-"initial.bug_report" = "Report via <a href=\"https://github.com/iina/iina/issues\">GitHub issues</a>.";
+"initial.bug_report" = "Report via <a href=\"https://github.com/rawya-ai-player/client-macos/issues\">GitHub issues</a>.";
 
 // Inspector Window
 "inspector.error" = "Error";

@@ -47,7 +47,7 @@ class Logger: NSObject {
     let rawValue: String
     var added = false
 
-    static let general = Subsystem(rawValue: "iina")
+    static let general = Subsystem(rawValue: "rawya")
 
     required init(rawValue: String) {
       self.rawValue = rawValue
@@ -125,7 +125,7 @@ class Logger: NSObject {
     return sessionDir
   }()
 
-  private static let logFile: URL = logDirectory.appendingPathComponent("iina.log")
+  private static let logFile: URL = logDirectory.appendingPathComponent("rawya.log")
 
   private static let loggerSubsystem = Logger.makeSubsystem("logger")
 

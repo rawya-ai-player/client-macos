@@ -36,15 +36,39 @@ final class AISubtitlePassThroughTranslator: AISubtitleTranslator {
   }
 }
 
+struct AISubtitleSpeechYieldPolicy {
+  static func shouldPause(transcriptIsEmpty: Bool,
+                          processedThrough: Double,
+                          mediaDuration: Double,
+                          hasRemainingRanges: Bool) -> Bool {
+    guard transcriptIsEmpty, hasRemainingRanges, mediaDuration > 0 else { return false }
+    let probeDuration = min(180, max(120, mediaDuration * 0.1))
+    return processedThrough >= probeDuration
+  }
+}
+
+enum AISubtitleChunkOverlapPolicy {
+  static func newSpeechSegments(_ segments: [AISubtitleSegment],
+                                in range: AISubtitleTimeRange,
+                                overlapDuration: Double) -> [AISubtitleSegment] {
+    guard range.start > 0, overlapDuration > 0 else { return segments }
+    let previousChunkEnd = min(range.end, range.start + overlapDuration)
+    return segments.filter { $0.timeRange.end > previousChunkEnd + 0.001 }
+  }
+}
+
 final class AISubtitleScheduler {
   struct Configuration {
+    // Kept for source compatibility with older callers. Full-video generation no longer
+    // follows an ahead-of-playback window.
     var aheadDuration: Double = 300
     var refillThreshold: Double = 60
     var chunkPlanner = AISubtitleChunkPlanner()
+    var publishesIntermediateArtifacts = false
   }
 
   typealias StateHandler = (AISubtitleTaskState) -> Void
-  typealias SubtitleFileHandler = (URL) -> Void
+  typealias SubtitleFileHandler = (AISubtitleCacheArtifacts) -> Void
 
   private let queue: DispatchQueue
   private let extractor: AISubtitleAudioExtracting
@@ -63,9 +87,9 @@ final class AISubtitleScheduler {
   private var coveredRanges: [AISubtitleTimeRange] = []
   private var transcript: [AISubtitleSegment] = []
   private var translatedCues: [AISubtitleCue] = []
-  private var focusPosition: Double = 0
   private var isProcessing = false
   private var activeRange: AISubtitleTimeRange?
+  private var shouldMonitorInitialSpeechYield = true
   private var stateHandler: StateHandler?
   private var subtitleFileHandler: SubtitleFileHandler?
 
@@ -75,7 +99,7 @@ final class AISubtitleScheduler {
        cacheStore: AISubtitleCacheStore = AISubtitleCacheStore(),
        configuration: Configuration = Configuration(),
        fileManager: FileManager = .default,
-       queue: DispatchQueue = DispatchQueue(label: "IINAAISubtitleScheduler", qos: .utility)) {
+       queue: DispatchQueue = DispatchQueue(label: "RawyaAISubtitleScheduler", qos: .utility)) {
     self.extractor = extractor
     self.transcriber = transcriber
     self.translator = translator
@@ -105,34 +129,32 @@ final class AISubtitleScheduler {
       self.translatedCues.removeAll()
       self.isProcessing = false
       self.activeRange = nil
+      self.shouldMonitorInitialSpeechYield = true
       self.stateHandler = stateHandler
       self.subtitleFileHandler = subtitleFileHandler
       if let cached = try? self.cacheStore.cachedContent(for: cacheKey) {
         self.coveredRanges = self.mergedRanges(cached.metadata.coveredRanges)
         self.transcript = cached.transcript
         self.translatedCues = cached.cues
-        if let cachedVTT = self.cacheStore.cachedVTT(for: cacheKey) {
-          self.subtitleFileHandler?(cachedVTT)
+        if self.transcript.isEmpty, !self.coveredRanges.isEmpty {
+          self.shouldMonitorInitialSpeechYield = false
         }
       }
       self.emit(AISubtitleTaskState(.preparing))
-      let initialPosition = self.mediaDuration > 0 && playbackPosition >= self.mediaDuration
-        ? 0
-        : playbackPosition
-      self.focusPosition = min(max(0, initialPosition), self.mediaDuration)
-      self.enqueueAheadWindow(from: initialPosition)
+      guard self.mediaDuration > 0 else {
+        self.fail(AISubtitleError(code: "invalid_media_duration",
+                                  message: "The video duration is unavailable."))
+        return
+      }
+      _ = playbackPosition
+      self.enqueueWholeMedia()
       self.processNextIfNeeded()
     }
   }
 
   func updatePlaybackPosition(_ position: Double) {
-    queue.async {
-      guard self.media != nil else { return }
-      self.focusPosition = min(max(0, position), self.mediaDuration)
-      self.pendingRanges.removeAll()
-      self.enqueueAheadWindow(from: position)
-      self.processNextIfNeeded()
-    }
+    // Generation is intentionally independent of seeking, pausing, and playback speed.
+    _ = position
   }
 
   func cancel() {
@@ -147,33 +169,15 @@ final class AISubtitleScheduler {
       self.cacheKey = nil
       self.isProcessing = false
       self.activeRange = nil
-      self.focusPosition = 0
       self.emit(AISubtitleTaskState(.canceled))
       self.stateHandler = nil
       self.subtitleFileHandler = nil
     }
   }
 
-  private func enqueueAheadWindow(from playbackPosition: Double) {
-    let start = min(max(0, playbackPosition), mediaDuration)
-    let end = min(mediaDuration, start + configuration.aheadDuration)
-    guard end > start else {
-      pendingRanges.removeAll()
-      return
-    }
-
-    let containingCoverage = coveredRanges.first { start >= $0.start && start <= $0.end }
-    let requiredAhead = max(0, end - start - configuration.refillThreshold)
-    if let containingCoverage = containingCoverage,
-       containingCoverage.end - start >= requiredAhead {
-      pendingRanges.removeAll()
-      return
-    }
-
-    let overlap = max(0, configuration.chunkPlanner.overlapDuration)
-    let generationStart = containingCoverage.map { max(start, $0.end - overlap) } ?? start
+  private func enqueueWholeMedia() {
     pendingRanges = configuration.chunkPlanner
-      .ranges(covering: AISubtitleTimeRange(start: generationStart, end: end))
+      .ranges(covering: AISubtitleTimeRange(start: 0, end: mediaDuration))
       .filter { !isCovered($0) && $0 != activeRange }
   }
 
@@ -183,9 +187,13 @@ final class AISubtitleScheduler {
           let request = request,
           let cacheKey = cacheKey else { return }
     guard let range = pendingRanges.first else {
-      emit(AISubtitleTaskState(.maintaining,
-                               coveredRange: focusedCoveredRange(),
-                               progress: progress))
+      if !configuration.publishesIntermediateArtifacts,
+         let artifacts = cacheStore.cachedArtifacts(for: cacheKey) {
+        subtitleFileHandler?(artifacts)
+      }
+      emit(AISubtitleTaskState(.completed,
+                               coveredRange: overallCoveredRange(),
+                               progress: 1))
       return
     }
     pendingRanges.removeFirst()
@@ -203,7 +211,7 @@ final class AISubtitleScheduler {
       .appendingPathComponent(chunkFilename(for: range), isDirectory: false)
     emit(AISubtitleTaskState(.extracting,
                              currentRange: range,
-                             coveredRange: focusedCoveredRange(),
+                             coveredRange: overallCoveredRange(),
                              progress: progress))
     extractor.extract(media: media, timeRange: range, outputURL: outputURL) { result in
       self.queue.async {
@@ -219,7 +227,7 @@ final class AISubtitleScheduler {
         case .success(let chunk):
           self.emit(AISubtitleTaskState(.transcribing,
                                         currentRange: range,
-                                        coveredRange: self.focusedCoveredRange(),
+                                        coveredRange: self.overallCoveredRange(),
                                         progress: self.progress))
           self.transcriber.transcribe(chunk, request: request) { result in
             self.queue.async {
@@ -229,11 +237,50 @@ final class AISubtitleScheduler {
               case .failure(let error):
                 self.fail(error)
               case .success(let segments):
+                let newSpeechSegments = AISubtitleChunkOverlapPolicy.newSpeechSegments(
+                  segments,
+                  in: range,
+                  overlapDuration: self.configuration.chunkPlanner.overlapDuration)
+                let sourceLanguage = request.sourceLanguage
+                  ?? newSpeechSegments.first?.language
+                  ?? AISubtitleLanguage("und")
+                let semanticSegments = AISubtitleSemanticSegmenter().assemble(
+                  newSpeechSegments,
+                  language: sourceLanguage)
+                guard !semanticSegments.isEmpty else {
+                  let shouldPause = self.shouldMonitorInitialSpeechYield
+                    && AISubtitleSpeechYieldPolicy.shouldPause(
+                      transcriptIsEmpty: self.transcript.isEmpty,
+                      processedThrough: range.end,
+                      mediaDuration: self.mediaDuration,
+                      hasRemainingRanges: !self.pendingRanges.isEmpty
+                    )
+                  if shouldPause {
+                    self.shouldMonitorInitialSpeechYield = false
+                  }
+                  self.finish(range: range,
+                              newSegments: [],
+                              newCues: [],
+                              cacheKey: cacheKey,
+                              stopAfterSaving: shouldPause ? AISubtitleError(
+                                code: "ai_subtitle_possible_language_mismatch",
+                                message: aiSubtitleLocalized(
+                                  "ai_subtitle.possible_language_mismatch",
+                                  fallback: "Rawya found no dialogue in the first few minutes. Check the audio language. If the opening is simply silent, generate again to continue from this point."
+                                )
+                              ) : nil)
+                  return
+                }
+                self.shouldMonitorInitialSpeechYield = false
+                let boundary = self.reconciledBoundary(
+                  semanticSegments,
+                  range: range,
+                  language: sourceLanguage)
                 self.emit(AISubtitleTaskState(.translating,
                                               currentRange: range,
-                                              coveredRange: self.focusedCoveredRange(),
+                                              coveredRange: self.overallCoveredRange(),
                                               progress: self.progress))
-                self.translator.translate(segments, request: request) { result in
+                self.translator.translate(boundary.segments, request: request) { result in
                   self.queue.async {
                     guard activeGeneration == self.generation else { return }
                     switch result {
@@ -241,9 +288,10 @@ final class AISubtitleScheduler {
                       self.fail(error)
                     case .success(let cues):
                       self.finish(range: range,
-                                  newSegments: segments,
+                                  newSegments: boundary.segments,
                                   newCues: cues,
-                                  cacheKey: cacheKey)
+                                  cacheKey: cacheKey,
+                                  replacingSegmentIDs: boundary.replacingSegmentIDs)
                     }
                   }
                 }
@@ -258,43 +306,61 @@ final class AISubtitleScheduler {
   private func finish(range: AISubtitleTimeRange,
                       newSegments: [AISubtitleSegment],
                       newCues: [AISubtitleCue],
-                      cacheKey: AISubtitleCacheKey) {
+                      cacheKey: AISubtitleCacheKey,
+                      replacingSegmentIDs: Set<String> = [],
+                      stopAfterSaving: AISubtitleError? = nil) {
+    if !replacingSegmentIDs.isEmpty {
+      transcript.removeAll { replacingSegmentIDs.contains($0.id) }
+      translatedCues.removeAll { replacingSegmentIDs.contains($0.id) }
+    }
     transcript.append(contentsOf: newSegments)
     translatedCues.append(contentsOf: newCues)
     coveredRanges.append(range)
     coveredRanges = mergedRanges(coveredRanges)
-    let normalizedCues = normalizedTranslatedCues()
     emit(AISubtitleTaskState(.assembling,
                              currentRange: range,
-                             coveredRange: focusedCoveredRange(),
+                             coveredRange: overallCoveredRange(),
                              progress: progress))
     do {
       let artifacts = try cacheStore.save(transcript: transcript,
-                                          cues: normalizedCues,
+                                          cues: translatedCues,
                                           coveredRanges: coveredRanges,
                                           for: cacheKey)
+      if configuration.publishesIntermediateArtifacts,
+         !pendingRanges.isEmpty,
+         !newCues.isEmpty,
+         !translatedCues.isEmpty {
+        subtitleFileHandler?(artifacts)
+      }
       emit(AISubtitleTaskState(.loading,
                                currentRange: range,
-                               coveredRange: focusedCoveredRange(),
+                               coveredRange: overallCoveredRange(),
                                progress: progress))
-      subtitleFileHandler?(artifacts.translatedVTTURL)
       isProcessing = false
       activeRange = nil
-      processNextIfNeeded()
+      if let stopAfterSaving {
+        fail(stopAfterSaving)
+      } else {
+        processNextIfNeeded()
+      }
     } catch {
       fail(AISubtitleError(code: "subtitle_cache_write_failed", message: error.localizedDescription))
     }
   }
 
-  private func normalizedTranslatedCues() -> [AISubtitleCue] {
-    let language = request?.targetLanguage ?? AISubtitleLanguage("und")
-    let segments = translatedCues.map {
-      AISubtitleSegment(id: $0.id,
-                        timeRange: $0.timeRange,
-                        text: $0.text,
-                        language: language)
+  private func reconciledBoundary(_ newSegments: [AISubtitleSegment],
+                                  range: AISubtitleTimeRange,
+                                  language: AISubtitleLanguage) -> (segments: [AISubtitleSegment],
+                                                                    replacingSegmentIDs: Set<String>) {
+    guard range.start > 0, configuration.chunkPlanner.overlapDuration > 0 else {
+      return (newSegments, [])
     }
-    return AISubtitleTimelineAssembler().assemble(segments, targetLanguage: language)
+    let previousTail = transcript.filter { $0.timeRange.end > range.start + 0.001 }
+    guard !previousTail.isEmpty else { return (newSegments, []) }
+    let replacingIDs = Set(previousTail.map(\.id))
+    let reconciled = AISubtitleSemanticSegmenter().assemble(previousTail + newSegments,
+                                                            language: language)
+    return (reconciled, replacingIDs)
   }
 
   private func mergedRanges(_ ranges: [AISubtitleTimeRange]) -> [AISubtitleTimeRange] {
@@ -319,16 +385,15 @@ final class AISubtitleScheduler {
     coveredRanges.contains { range.start >= $0.start && range.end <= $0.end }
   }
 
-  private func focusedCoveredRange() -> AISubtitleTimeRange? {
-    coveredRanges.first {
-      focusPosition >= $0.start - 0.01 && focusPosition <= $0.end + 0.01
-    }
+  private func overallCoveredRange() -> AISubtitleTimeRange? {
+    guard let first = coveredRanges.first, let last = coveredRanges.last else { return nil }
+    return AISubtitleTimeRange(start: first.start, end: last.end)
   }
 
   private var progress: Double? {
-    guard configuration.aheadDuration > 0 else { return nil }
+    guard mediaDuration > 0 else { return nil }
     let covered = coveredRanges.reduce(0) { $0 + $1.duration }
-    return min(1, covered / min(configuration.aheadDuration, max(mediaDuration, 1)))
+    return min(1, covered / mediaDuration)
   }
 
   private func chunkFilename(for range: AISubtitleTimeRange) -> String {
@@ -342,7 +407,7 @@ final class AISubtitleScheduler {
     isProcessing = false
     activeRange = nil
     emit(AISubtitleTaskState(.failed,
-                             coveredRange: focusedCoveredRange(),
+                             coveredRange: overallCoveredRange(),
                              progress: progress,
                              error: error))
   }

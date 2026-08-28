@@ -16,6 +16,11 @@
 "general.username" = "Benutzername";
 "general.password" = "Passwort";
 "general.na" = "N/A";
+"brand.localized_name" = "";
+"about.overview.tagline" = "KI-gestützter Videoplayer für macOS.";
+"about.overview.website" = "Website";
+"about.overview.source_code" = "Quellcode";
+"about.overview.license" = "Rawya ist freie Open-Source-Software und wird unter der GNU GPLv3 veröffentlicht.";
 
 "input.value_is_empty" = "Wert darf nicht leer sein.";
 "input.already_exists" = "Wert ist bereits vorhanden.";
@@ -30,7 +35,7 @@
 "initial.beta.desc" = "Wenn du eine Release Version benutzen willst, entferne den Haken bei „Betaupdates erhalten“ in Einstellungen -> Allgemein und installiere eine stabile Version von unserer <a href=\"https://rawya.app\">offiziellen Webseite</a>.";
 "initial.nightly.desc" = "Nightly-Versionen sollten nicht für den täglichen Gebrauch eingesetzt werden. Aktuell unterstützen diese keine automatischen Updates. Bitte lade neuere Versionen von unserer <a href=\"https://rawya.app\">Nightly-Website</a>.";
 "initial.debug.desc" = "Debug-Builds sind normalerweise nicht auf Leistung optimiert, daher wird es nicht empfohlen diese für den täglichen Gebrauch einzusetzen. Debug-Builds unterstützen keine automatischen Updates.";
-"initial.bug_report" = "Melde via <a href=\"https://github.com/iina/iina/issues\">GitHub Tickets</a>.";
+"initial.bug_report" = "Melde via <a href=\"https://github.com/rawya-ai-player/client-macos/issues\">GitHub Tickets</a>.";
 
 // Inspector Window
 "inspector.error" = "Fehler";

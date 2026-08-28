@@ -254,7 +254,7 @@
 		A1F5812B3C4D4E6F67718294 /* AISubtitleCloudProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2F5812B3C4D4E6F67718294 /* AISubtitleCloudProvider.swift */; };
 		B1F5812B3C4D4E6F67718295 /* AISubtitleAliyunProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2F5812B3C4D4E6F67718295 /* AISubtitleAliyunProvider.swift */; };
 		C1F5812B3C4D4E6F67718296 /* WhisperCppAISubtitleProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2F5812B3C4D4E6F67718296 /* WhisperCppAISubtitleProvider.swift */; };
-		D1F5812B3C4D4E6F67718297 /* AISubtitlePanelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2F5812B3C4D4E6F67718297 /* AISubtitlePanelController.swift */; };
+		D1F5812B3C4D4E6F67718297 /* PrefAISubtitleViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2F5812B3C4D4E6F67718297 /* PrefAISubtitleViewController.swift */; };
 		84795C3A1E083EE30059A648 /* PrefControlViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84795C381E083EE30059A648 /* PrefControlViewController.swift */; };
 		847C62CA1DC13CDA00E1EF16 /* PrefGeneralViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 847C62C81DC13CDA00E1EF16 /* PrefGeneralViewController.swift */; };
 		84817C981DBDCE4300CC2279 /* RoundedColorWell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84817C971DBDCE4300CC2279 /* RoundedColorWell.swift */; };
@@ -1469,7 +1469,7 @@
 		A2F5812B3C4D4E6F67718294 /* AISubtitleCloudProvider.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AISubtitleCloudProvider.swift; sourceTree = "<group>"; };
 		B2F5812B3C4D4E6F67718295 /* AISubtitleAliyunProvider.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AISubtitleAliyunProvider.swift; sourceTree = "<group>"; };
 		C2F5812B3C4D4E6F67718296 /* WhisperCppAISubtitleProvider.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = WhisperCppAISubtitleProvider.swift; sourceTree = "<group>"; };
-		D2F5812B3C4D4E6F67718297 /* AISubtitlePanelController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AISubtitlePanelController.swift; sourceTree = "<group>"; };
+		D2F5812B3C4D4E6F67718297 /* PrefAISubtitleViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = PrefAISubtitleViewController.swift; sourceTree = "<group>"; };
 		84792F541EBB957E002E98F6 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		84795C381E083EE30059A648 /* PrefControlViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = PrefControlViewController.swift; sourceTree = "<group>"; };
 		847C62C81DC13CDA00E1EF16 /* PrefGeneralViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = PrefGeneralViewController.swift; sourceTree = "<group>"; };
@@ -2272,7 +2272,7 @@
 				A2F5812B3C4D4E6F67718294 /* AISubtitleCloudProvider.swift */,
 				B2F5812B3C4D4E6F67718295 /* AISubtitleAliyunProvider.swift */,
 				C2F5812B3C4D4E6F67718296 /* WhisperCppAISubtitleProvider.swift */,
-				D2F5812B3C4D4E6F67718297 /* AISubtitlePanelController.swift */,
+				D2F5812B3C4D4E6F67718297 /* PrefAISubtitleViewController.swift */,
 				84791C8A1D405E9D0069E28A /* PlaybackInfo.swift */,
 				8476440B1D48F63D004F6DF5 /* OSDMessage.swift */,
 				845ABEAB1D4D19C000BFB15B /* MPVTrack.swift */,
@@ -3183,7 +3183,7 @@
 				A1F5812B3C4D4E6F67718294 /* AISubtitleCloudProvider.swift in Sources */,
 				B1F5812B3C4D4E6F67718295 /* AISubtitleAliyunProvider.swift in Sources */,
 				C1F5812B3C4D4E6F67718296 /* WhisperCppAISubtitleProvider.swift in Sources */,
-				D1F5812B3C4D4E6F67718297 /* AISubtitlePanelController.swift in Sources */,
+				D1F5812B3C4D4E6F67718297 /* PrefAISubtitleViewController.swift in Sources */,
 				84791C8B1D405E9D0069E28A /* PlaybackInfo.swift in Sources */,
 				E322A4F820A8442E00C67D32 /* PlaylistPlaybackProgressView.swift in Sources */,
 				84D123B41ECAA405004E0D53 /* TouchBarSupport.swift in Sources */,

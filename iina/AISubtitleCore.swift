@@ -15,11 +15,181 @@ func aiSubtitleLocalized(_ key: String, fallback: String) -> String {
                     comment: "AI subtitles")
 }
 
+enum AISubtitleSystemSupport {
+  static let minimumMacOSMajorVersion = 26
+
+  static var isSupported: Bool {
+    if #available(macOS 26.0, *) {
+      return true
+    }
+    return false
+  }
+}
+
 enum AISubtitleProviderID: String, Codable, CaseIterable {
   case apple
   case openAI
   case aliyun
   case whisperCpp
+}
+
+enum AISubtitleAutoMode: Int, Codable, CaseIterable {
+  static let defaultsKey = "aiSubtitle.autoMode"
+
+  case always = 0
+  case whenMissing = 1
+  case manual = 2
+
+  static var current: AISubtitleAutoMode {
+    get {
+      guard UserDefaults.standard.object(forKey: defaultsKey) != nil else { return .whenMissing }
+      return AISubtitleAutoMode(rawValue: UserDefaults.standard.integer(forKey: defaultsKey)) ?? .whenMissing
+    }
+    set {
+      UserDefaults.standard.set(newValue.rawValue, forKey: defaultsKey)
+    }
+  }
+
+  func shouldStart(hasSubtitleTracks: Bool, hasCompleteAIResult: Bool) -> Bool {
+    guard !hasCompleteAIResult else { return false }
+    switch self {
+    case .always:
+      return true
+    case .whenMissing:
+      return !hasSubtitleTracks
+    case .manual:
+      return false
+    }
+  }
+}
+
+struct AISubtitleLivePreviewState {
+  static let enabledDefaultsKey = "aiSubtitle.livePreviewEnabled"
+
+  var userDefaults: UserDefaults = .standard
+
+  var isEnabled: Bool {
+    userDefaults.bool(forKey: Self.enabledDefaultsKey)
+  }
+
+  func setEnabled(_ enabled: Bool) {
+    userDefaults.set(enabled, forKey: Self.enabledDefaultsKey)
+  }
+}
+
+struct AISubtitleFeatureState {
+  static let enabledDefaultsKey = "aiSubtitle.enabled"
+
+  var userDefaults: UserDefaults = .standard
+  var systemSupported = AISubtitleSystemSupport.isSupported
+
+  var isEnabled: Bool {
+    guard systemSupported else { return false }
+    if userDefaults.object(forKey: Self.enabledDefaultsKey) != nil {
+      return userDefaults.bool(forKey: Self.enabledDefaultsKey)
+    }
+    // Preserve the enabled state for users who completed setup before this
+    // explicit switch was introduced.
+    return userDefaults.bool(forKey: AISubtitleInitializationState.completedDefaultsKey)
+  }
+
+  func setEnabled(_ enabled: Bool) {
+    userDefaults.set(enabled, forKey: Self.enabledDefaultsKey)
+  }
+}
+
+struct AISubtitleInitializationState {
+  static let completedDefaultsKey = "aiSubtitle.initializationCompleted"
+  static let providerDefaultsKey = "aiSubtitle.initializedProvider"
+  static let enabledProvidersDefaultsKey = "aiSubtitle.enabledProviders"
+
+  var userDefaults: UserDefaults = .standard
+  var credentialChecker: AISubtitleCredentialChecking = AISubtitleKeychainCredentialChecker()
+  var consentChecker: AISubtitleCloudConsentChecking = UserDefaultsAISubtitleCloudConsentStore()
+  var systemSupported = AISubtitleSystemSupport.isSupported
+
+  var provider: AISubtitleProviderID? {
+    guard let rawValue = userDefaults.string(forKey: Self.providerDefaultsKey),
+          let provider = AISubtitleProviderID(rawValue: rawValue),
+          provider != .whisperCpp else { return nil }
+    return provider
+  }
+
+  var isComplete: Bool {
+    guard systemSupported,
+          let provider = configuredProvider,
+          provider != .whisperCpp,
+          isEnabled(provider) else { return false }
+    switch provider {
+    case .apple:
+      return true
+    case .openAI, .aliyun:
+      return credentialChecker.hasCredential(for: provider)
+        && consentChecker.hasConsent(for: provider)
+    case .whisperCpp:
+      return false
+    }
+  }
+
+  func markComplete(provider: AISubtitleProviderID) {
+    guard provider != .whisperCpp else { return }
+    var enabledProviders = enabledProviderRawValues
+    enabledProviders.insert(provider.rawValue)
+    userDefaults.set(Array(enabledProviders).sorted(), forKey: Self.enabledProvidersDefaultsKey)
+    userDefaults.set(provider.rawValue, forKey: Self.providerDefaultsKey)
+    userDefaults.set(true, forKey: Self.completedDefaultsKey)
+    AISubtitleFeatureState(userDefaults: userDefaults,
+                           systemSupported: systemSupported).setEnabled(true)
+  }
+
+  func reset(provider: AISubtitleProviderID? = nil) {
+    if let provider {
+      var enabledProviders = enabledProviderRawValues
+      enabledProviders.remove(provider.rawValue)
+      userDefaults.set(Array(enabledProviders).sorted(), forKey: Self.enabledProvidersDefaultsKey)
+      if self.provider == provider {
+        userDefaults.removeObject(forKey: Self.completedDefaultsKey)
+        userDefaults.removeObject(forKey: Self.providerDefaultsKey)
+      }
+    } else {
+      userDefaults.removeObject(forKey: Self.enabledProvidersDefaultsKey)
+      userDefaults.removeObject(forKey: Self.completedDefaultsKey)
+      userDefaults.removeObject(forKey: Self.providerDefaultsKey)
+    }
+  }
+
+  private var configuredProvider: AISubtitleProviderID? {
+    guard userDefaults.object(forKey: "aiSubtitle.provider") != nil else { return .apple }
+    return AISubtitleProviderID(preferenceIndex: userDefaults.integer(forKey: "aiSubtitle.provider"))
+  }
+
+  private func isEnabled(_ provider: AISubtitleProviderID) -> Bool {
+    enabledProviderRawValues.contains(provider.rawValue)
+  }
+
+  private var enabledProviderRawValues: Set<String> {
+    if let values = userDefaults.stringArray(forKey: Self.enabledProvidersDefaultsKey) {
+      return Set(values)
+    }
+    guard userDefaults.bool(forKey: Self.completedDefaultsKey),
+          let provider else { return [] }
+    let migrated = Set([provider.rawValue])
+    userDefaults.set(Array(migrated), forKey: Self.enabledProvidersDefaultsKey)
+    return migrated
+  }
+}
+
+enum AISubtitleLocaleReservationPolicy {
+  static func releaseOrder(reservedLocales: [AISubtitleLanguage],
+                           requestedLocale: AISubtitleLanguage,
+                           preferRequestedLanguage: Bool) -> [AISubtitleLanguage] {
+    let groupedLocales = Dictionary(grouping: reservedLocales) {
+      $0.isEquivalent(to: requestedLocale)
+    }
+    return preferRequestedLanguage
+      ? (groupedLocales[true, default: []] + groupedLocales[false, default: []])
+      : (groupedLocales[false, default: []] + groupedLocales[true, default: []])
+  }
 }
 
 extension AISubtitleProviderID {
@@ -135,6 +305,38 @@ struct AISubtitleLanguage: Codable, Hashable {
     }
     return (primary, script)
   }
+}
+
+struct AISubtitleLanguageOption {
+  var code: String?
+  var fallbackTitle: String
+
+  var title: String {
+    guard let code else {
+      return aiSubtitleLocalized("ai_subtitle.choose_language", fallback: fallbackTitle)
+    }
+    let interfaceLanguage = Bundle.main.preferredLocalizations.first ?? Locale.current.identifier
+    return Locale(identifier: interfaceLanguage).localizedString(forIdentifier: code) ?? fallbackTitle
+  }
+}
+
+enum AISubtitleLanguageCatalog {
+  static let sourceLanguages = [
+    AISubtitleLanguageOption(code: nil, fallbackTitle: "Choose Language"),
+    AISubtitleLanguageOption(code: "zh-Hans", fallbackTitle: "Chinese (Simplified)"),
+    AISubtitleLanguageOption(code: "zh-Hant", fallbackTitle: "Chinese (Traditional)"),
+    AISubtitleLanguageOption(code: "en", fallbackTitle: "English"),
+    AISubtitleLanguageOption(code: "ja", fallbackTitle: "Japanese"),
+    AISubtitleLanguageOption(code: "ko", fallbackTitle: "Korean"),
+    AISubtitleLanguageOption(code: "es", fallbackTitle: "Spanish"),
+    AISubtitleLanguageOption(code: "fr", fallbackTitle: "French"),
+    AISubtitleLanguageOption(code: "de", fallbackTitle: "German"),
+    AISubtitleLanguageOption(code: "ru", fallbackTitle: "Russian"),
+    AISubtitleLanguageOption(code: "pt", fallbackTitle: "Portuguese"),
+    AISubtitleLanguageOption(code: "ar", fallbackTitle: "Arabic")
+  ]
+
+  static let targetLanguages = Array(sourceLanguages.dropFirst())
 }
 
 enum AISubtitleSuggestionPolicy {
@@ -333,6 +535,7 @@ struct AISubtitleTaskState: Codable, Hashable {
     case translating
     case assembling
     case loading
+    case finalizing
     case maintaining
     case completed
     case failed
@@ -489,7 +692,7 @@ extension AISubtitleProviderRequest {
 }
 
 struct AISubtitleCacheKey: Codable, Hashable {
-  static let currentSchemaVersion = 2
+  static let currentSchemaVersion = 12
 
   var schemaVersion: Int
   var mediaURLString: String
@@ -551,6 +754,8 @@ struct AISubtitleCacheArtifacts: Codable, Hashable {
   var metadataURL: URL
   var transcriptURL: URL
   var translatedCuesURL: URL
+  var originalVTTURL: URL
+  var originalSRTURL: URL
   var translatedVTTURL: URL
   var translatedSRTURL: URL
   var chunksDirectoryURL: URL
@@ -579,6 +784,8 @@ struct AISubtitleCacheLayout {
       metadataURL: directoryURL.appendingPathComponent("metadata.json", isDirectory: false),
       transcriptURL: directoryURL.appendingPathComponent("transcript.json", isDirectory: false),
       translatedCuesURL: directoryURL.appendingPathComponent("translated-cues.json", isDirectory: false),
+      originalVTTURL: directoryURL.appendingPathComponent("original.vtt", isDirectory: false),
+      originalSRTURL: directoryURL.appendingPathComponent("original.srt", isDirectory: false),
       translatedVTTURL: directoryURL.appendingPathComponent("translated.vtt", isDirectory: false),
       translatedSRTURL: directoryURL.appendingPathComponent("translated.srt", isDirectory: false),
       chunksDirectoryURL: chunksDirectoryURL
@@ -627,9 +834,18 @@ protocol AISubtitleCredentialChecking {
 }
 
 extension KeychainAccess.ServiceName {
-  static let aiSubtitleOpenAI = KeychainAccess.ServiceName(rawValue: "IINA AI Subtitle OpenAI")
-  static let aiSubtitleAliyun = KeychainAccess.ServiceName(rawValue: "IINA AI Subtitle Aliyun")
-  static let aiSubtitleAliyunMachineTranslation = KeychainAccess.ServiceName(rawValue: "IINA AI Subtitle Aliyun Machine Translation")
+  static let aiSubtitleOpenAI = KeychainAccess.ServiceName(
+    rawValue: "Rawya AI Subtitle OpenAI",
+    legacyRawValues: ["IINA AI Subtitle OpenAI"]
+  )
+  static let aiSubtitleAliyun = KeychainAccess.ServiceName(
+    rawValue: "Rawya AI Subtitle Aliyun",
+    legacyRawValues: ["IINA AI Subtitle Aliyun"]
+  )
+  static let aiSubtitleAliyunMachineTranslation = KeychainAccess.ServiceName(
+    rawValue: "Rawya AI Subtitle Aliyun Machine Translation",
+    legacyRawValues: ["IINA AI Subtitle Aliyun Machine Translation"]
+  )
 }
 
 struct AISubtitleKeychainCredentialChecker: AISubtitleCredentialChecking {

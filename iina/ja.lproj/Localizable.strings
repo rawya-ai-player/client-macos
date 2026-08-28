@@ -16,6 +16,11 @@
 "general.username" = "ユーザ名";
 "general.password" = "パスワード";
 "general.na" = "N/A";
+"brand.localized_name" = "";
+"about.overview.tagline" = "macOS 向けの AI 搭載ビデオプレーヤー。";
+"about.overview.website" = "ウェブサイト";
+"about.overview.source_code" = "ソースコード";
+"about.overview.license" = "Rawya は GNU GPLv3 の下で公開されている、自由でオープンソースのソフトウェアです。";
 
 "input.value_is_empty" = "値は空欄にできません。";
 "input.already_exists" = "値はすでに存在します。";
@@ -30,7 +35,7 @@
 "initial.beta.desc" = "リリースバージョンにロールバックする場合は、設定 > 一般 の \"ベータアップデートを受信\" のチェックを外し、<a href=\"https://rawya.app\">公式Webサイト</a> から安定版リリースをインストールしてください。";
 "initial.nightly.desc" = "Nightlyを常用することは推奨されません。Nightlyビルドは、現在自動アップデートに対応していません。新しいビルドは<a href=\"https://rawya.app\">Nightly Webサイト</a>から手動でダウンロードしてください。";
 "initial.debug.desc" = "デバッグビルドは通常パフォーマンスが最適化されていないので、常用することは推奨されません。デバッグビルドは自動アップデートに対応していません。";
-"initial.bug_report" = "<a href=\"https://github.com/iina/iina/issues\">GitHub issues</a> で報告してください。";
+"initial.bug_report" = "<a href=\"https://github.com/rawya-ai-player/client-macos/issues\">GitHub issues</a> で報告してください。";
 
 // Inspector Window
 "inspector.error" = "エラー";

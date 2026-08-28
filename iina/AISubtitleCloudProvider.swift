@@ -339,7 +339,7 @@ final class OpenAIAISubtitleTranscriber: AISubtitleTranscriber, OpenAISubtitlePr
       return
     }
 
-    let boundary = "IINAAISubtitle-\(UUID().uuidString)"
+    let boundary = "RawyaAISubtitle-\(UUID().uuidString)"
     var requestURL = URLRequest(url: endpoint)
     requestURL.httpMethod = "POST"
     requestURL.timeoutInterval = 120

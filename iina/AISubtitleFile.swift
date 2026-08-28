@@ -6,15 +6,849 @@
 //
 
 import Foundation
+import NaturalLanguage
 
 struct AISubtitleAssemblerOptions {
-  var duplicateMergeGap: Double = 0.5
-  var adjacentMergeGap: Double = 0.15
-  var maximumMergedCharacterCount: Int = 84
+  var punctuationMergeGap: Double = 0.5
+  var fillerMergeGap: Double = 0.65
+  var maximumMergedFillerCharacterCount: Int = 12
+  var maximumCJKCueCharacterCount: Int = 26
+  var maximumLatinCueCharacterCount: Int = 72
+}
+
+struct AISubtitleSemanticSegmenterOptions {
+  var maximumMergeGap: Double = 0.3
+  var maximumDuration: Double = 12
+  var maximumCompactCharacterCount: Int = 48
+  var maximumLatinCharacterCount: Int = 100
+  var shortFragmentDuration: Double = 0.45
+  var unstableResultMergeGap: Double = 0.08
+  var unstableResultDuration: Double = 1.1
+  var maximumRecoveryDuration: Double = 30
+  var maximumCompactRecoveryCharacterCount: Int = 160
+  var maximumLatinRecoveryCharacterCount: Int = 240
+  var maximumTranslationBlockDuration: Double = 8
+  var minimumTranslationBlockDuration: Double = 1
+  var maximumCompactTranslationBlockCharacterCount: Int = 48
+  var maximumLatinTranslationBlockCharacterCount: Int = 100
+  var maximumSentencesPerTranslationBlock: Int = 3
+}
+
+struct AISubtitleTargetTextNormalizer {
+  func normalize(_ text: String, language: AISubtitleLanguage) -> String {
+    let code = language.code.replacingOccurrences(of: "_", with: "-").lowercased()
+    let transformName: String?
+    if code == "zh-hans" || code.hasPrefix("zh-hans-") || code == "zh-cn" || code.hasPrefix("zh-cn-") {
+      transformName = "Traditional-Simplified"
+    } else if code == "zh-hant" || code.hasPrefix("zh-hant-") || code == "zh-tw" || code.hasPrefix("zh-tw-") {
+      transformName = "Simplified-Traditional"
+    } else {
+      transformName = nil
+    }
+    var normalized = text
+    if let transformName,
+       let transformed = normalized.applyingTransform(StringTransform(transformName), reverse: false) {
+      normalized = transformed
+    }
+    if code == "ja" || code.hasPrefix("ja-") {
+      normalized = normalized
+        .replacingOccurrences(of: "学霸", with: "優等生")
+        .replacingOccurrences(of: "学渣", with: "落ちこぼれ")
+      normalized = removingLeadingJapaneseParticle(normalized)
+      let trimmed = normalized.trimmingCharacters(in: .whitespacesAndNewlines)
+      normalized = trimmed.replacingOccurrences(
+        of: #"\bNo(?=[\s,.!?。！？]|$)"#,
+        with: "いいえ",
+        options: [.regularExpression, .caseInsensitive])
+      normalized = normalized.replacingOccurrences(
+        of: #"いいえ[.。]\s*いいえ"#,
+        with: "いいえ",
+        options: .regularExpression)
+      if normalized.range(of: #"^Mm\s+(?=うーん)"#,
+                          options: [.regularExpression, .caseInsensitive]) != nil {
+        normalized = normalized.replacingOccurrences(
+          of: #"^Mm\s+(?=うーん)"#,
+          with: "",
+          options: [.regularExpression, .caseInsensitive])
+      }
+    } else if code == "ko" || code.hasPrefix("ko-") {
+      normalized = removingLeadingStandaloneKoreanParticle(normalized)
+      let trimmed = normalized.trimmingCharacters(in: .whitespacesAndNewlines)
+      normalized = trimmed.replacingOccurrences(
+        of: #"^번호\s+아니요"#,
+        with: "아니요",
+        options: .regularExpression)
+      normalized = normalized.replacingOccurrences(
+        of: #"^Mm\s+(?=음)"#,
+        with: "",
+        options: [.regularExpression, .caseInsensitive])
+      if normalized.range(of: #"^I\s*[.…]*$"#,
+                          options: [.regularExpression, .caseInsensitive]) != nil {
+        normalized = "저..."
+      }
+    }
+    return normalized
+  }
+
+  private func removingLeadingStandaloneKoreanParticle(_ text: String) -> String {
+    let parts = text.split(maxSplits: 1, whereSeparator: { $0.isWhitespace })
+    guard parts.count == 2,
+          ["은", "는", "을", "를"].contains(String(parts[0])) else { return text }
+    return String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  private func removingLeadingJapaneseParticle(_ text: String) -> String {
+    guard let first = text.first,
+          ["は", "が", "を"].contains(first),
+          text.count > 1 else { return text }
+    let remainder = text.dropFirst()
+    let brokenBoundaryStarts = [
+      "私", "僕", "俺", "あなた", "彼", "彼女", "息子", "娘", "人", "皆", "これ", "それ", "あれ"
+    ]
+    guard brokenBoundaryStarts.contains(where: { remainder.hasPrefix($0) }) else { return text }
+    return String(remainder).trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+}
+
+struct AISubtitleForeignScriptNoiseFilter {
+  var minimumSegmentCount = 2
+  var minimumRunDuration: Double = 10
+  var maximumGap: Double = 8
+  var minimumLatinLetterRatio = 0.8
+
+  func filter(_ segments: [AISubtitleSegment], language: AISubtitleLanguage) -> [AISubtitleSegment] {
+    guard usesEastAsianWritingSystem(language) else { return segments }
+    var discardedIDs = Set<String>()
+    var currentRun: [AISubtitleSegment] = []
+
+    func shouldDiscard(_ run: [AISubtitleSegment]) -> Bool {
+      guard run.count >= minimumSegmentCount,
+            let first = run.first,
+            let last = run.last else { return false }
+      return last.timeRange.end - first.timeRange.start >= minimumRunDuration
+    }
+
+    func flush() {
+      if shouldDiscard(currentRun) {
+        discardedIDs.formUnion(currentRun.map(\.id))
+      }
+      currentRun.removeAll(keepingCapacity: true)
+    }
+
+    for segment in segments {
+      guard isPrimarilyLatin(segment.text) else {
+        flush()
+        continue
+      }
+      if let previous = currentRun.last,
+         segment.timeRange.start - previous.timeRange.end > maximumGap {
+        flush()
+      }
+      currentRun.append(segment)
+    }
+    flush()
+    return segments.filter { !discardedIDs.contains($0.id) }
+  }
+
+  private func isPrimarilyLatin(_ text: String) -> Bool {
+    let letters = text.unicodeScalars.filter(CharacterSet.letters.contains)
+    guard letters.count >= 4 else { return false }
+    let latinCount = letters.filter {
+      (65...90).contains($0.value) || (97...122).contains($0.value)
+    }.count
+    return Double(latinCount) / Double(letters.count) >= minimumLatinLetterRatio
+  }
+
+  private func usesEastAsianWritingSystem(_ language: AISubtitleLanguage) -> Bool {
+    let primaryCode = language.code.replacingOccurrences(of: "_", with: "-")
+      .lowercased()
+      .split(separator: "-")
+      .first
+      .map(String.init)
+    return primaryCode.map { ["zh", "ja", "ko"].contains($0) } ?? false
+  }
+}
+
+struct AISubtitleTextPartitioner {
+  func parts(_ text: String,
+             maximumCharacterCount: Int,
+             maximumSentenceCount: Int,
+             minimumPartCount: Int = 1,
+             compact: Bool,
+             language: AISubtitleLanguage? = nil) -> [String] {
+    let units = sentenceUnits(in: text).flatMap {
+      chunks(in: $0,
+             maximumCharacterCount: maximumCharacterCount,
+             language: language)
+    }
+    var result: [String] = []
+    var current = ""
+    var currentSentenceCount = 0
+    for unit in units {
+      let unitSentenceCount = max(1, sentenceEndCount(in: unit))
+      let candidate = joined(current,
+                             unit,
+                             compact: compact && usesSpacelessWritingSystem(language))
+      if !current.isEmpty,
+         (displayCharacterCount(candidate, compact: compact) > maximumCharacterCount
+           || currentSentenceCount + unitSentenceCount > maximumSentenceCount) {
+        result.append(current)
+        current = unit
+        currentSentenceCount = unitSentenceCount
+      } else {
+        current = candidate
+        currentSentenceCount += unitSentenceCount
+      }
+    }
+    if !current.isEmpty { result.append(current) }
+    if result.isEmpty, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      result = [text.trimmingCharacters(in: .whitespacesAndNewlines)]
+    }
+
+    while result.count < minimumPartCount {
+      guard let index = result.indices.max(by: {
+        readableCharacterCount(result[$0]) < readableCharacterCount(result[$1])
+      }) else { break }
+      let split = balancedParts(result[index],
+                                count: 2,
+                                compact: compact,
+                                language: language)
+      guard split.count == 2 else { break }
+      result.replaceSubrange(index...index, with: split)
+    }
+    return result
+  }
+
+  func balancedParts(_ text: String,
+                     count: Int,
+                     compact: Bool,
+                     language: AISubtitleLanguage? = nil) -> [String] {
+    guard count > 1 else { return [text.trimmingCharacters(in: .whitespacesAndNewlines)] }
+    var remaining = Array(text.trimmingCharacters(in: .whitespacesAndNewlines))
+    var result: [String] = []
+    for partIndex in 0..<(count - 1) {
+      let remainingPartCount = count - partIndex
+      guard remaining.count >= remainingPartCount else { return [text] }
+      let ideal = max(1, remaining.count / remainingPartCount)
+      let lower = max(1, ideal - max(2, ideal / 2))
+      let upper = min(remaining.count - (remainingPartCount - 1),
+                      ideal + max(2, ideal / 2))
+      guard lower <= upper else { return [text] }
+      let wordBoundaries = wordBoundaryOffsets(in: remaining)
+      let splitIndex = (lower...upper).min { first, second in
+        let firstScore = boundaryScore(at: first,
+                                       in: remaining,
+                                       wordBoundaries: wordBoundaries,
+                                       language: language) * 100 + abs(first - ideal)
+        let secondScore = boundaryScore(at: second,
+                                        in: remaining,
+                                        wordBoundaries: wordBoundaries,
+                                        language: language) * 100 + abs(second - ideal)
+        return firstScore < secondScore
+      } ?? ideal
+      let part = String(remaining[..<splitIndex]).trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !part.isEmpty else { return [text] }
+      result.append(part)
+      remaining.removeFirst(splitIndex)
+      while remaining.first?.isWhitespace == true { remaining.removeFirst() }
+    }
+    let final = String(remaining).trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !final.isEmpty else { return [text] }
+    result.append(final)
+    return result
+  }
+
+  func balancedLineParts(_ text: String,
+                         maximumLineCharacterCount: Int,
+                         compact: Bool,
+                         language: AISubtitleLanguage? = nil) -> [String] {
+    let characters = Array(text.trimmingCharacters(in: .whitespacesAndNewlines))
+    guard characters.count > maximumLineCharacterCount else { return [text] }
+    let lower = max(1, characters.count - maximumLineCharacterCount)
+    let upper = min(maximumLineCharacterCount, characters.count - 1)
+    guard lower <= upper else {
+      return balancedParts(text, count: 2, compact: compact, language: language)
+    }
+    let ideal = characters.count / 2
+    let wordBoundaries = wordBoundaryOffsets(in: characters)
+    let candidates = Array(lower...upper)
+    let naturalCandidates = candidates.filter {
+      boundaryScore(at: $0,
+                    in: characters,
+                    wordBoundaries: wordBoundaries,
+                    language: language) <= 2
+    }
+    let pool = naturalCandidates.isEmpty ? candidates : naturalCandidates
+    let splitIndex = pool.min { first, second in
+      let firstDistance = abs(first - ideal)
+      let secondDistance = abs(second - ideal)
+      if firstDistance != secondDistance { return firstDistance < secondDistance }
+      return boundaryScore(at: first,
+                           in: characters,
+                           wordBoundaries: wordBoundaries,
+                           language: language)
+        < boundaryScore(at: second,
+                        in: characters,
+                        wordBoundaries: wordBoundaries,
+                        language: language)
+    } ?? ideal
+    let first = String(characters[..<splitIndex]).trimmingCharacters(in: .whitespacesAndNewlines)
+    let second = String(characters[splitIndex...]).trimmingCharacters(in: .whitespacesAndNewlines)
+    return first.isEmpty || second.isEmpty ? [text] : [first, second]
+  }
+
+  func sentenceEndCount(in text: String) -> Int {
+    text.reduce(into: 0) { count, character in
+      if "\u{3002}\u{FF01}\u{FF1F}!?".contains(character) { count += 1 }
+    }
+  }
+
+  func readableCharacterCount(_ text: String) -> Int {
+    text.filter { !$0.isWhitespace }.count
+  }
+
+  func displayCharacterCount(_ text: String, compact: Bool) -> Int {
+    compact ? readableCharacterCount(text) : text.count
+  }
+
+  func isNaturalBoundary(between first: String,
+                         and second: String,
+                         language: AISubtitleLanguage) -> Bool {
+    let characters = Array(first + second)
+    let index = Array(first).count
+    guard index > 0, index < characters.count else { return true }
+    return boundaryScore(at: index,
+                         in: characters,
+                         wordBoundaries: wordBoundaryOffsets(in: characters),
+                         language: language) <= 2
+  }
+
+  private func sentenceUnits(in text: String) -> [String] {
+    let characters = Array(text)
+    var result: [String] = []
+    var current = ""
+    for index in characters.indices {
+      let character = characters[index]
+      current.append(character)
+      let nextIsBoundary = index == characters.index(before: characters.endIndex)
+        || characters[characters.index(after: index)].isWhitespace
+      let isSentenceEnd = "\u{3002}\u{FF01}\u{FF1F}!?".contains(character)
+        || (character == "." && nextIsBoundary)
+        || character == "\n"
+      if isSentenceEnd {
+        let unit = current.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !unit.isEmpty { result.append(unit) }
+        current = ""
+      }
+    }
+    let remainder = current.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !remainder.isEmpty { result.append(remainder) }
+    return result.isEmpty ? [text] : result
+  }
+
+  private func chunks(in text: String,
+                      maximumCharacterCount: Int,
+                      language: AISubtitleLanguage?) -> [String] {
+    var remaining = Array(text.trimmingCharacters(in: .whitespacesAndNewlines))
+    var result: [String] = []
+    while displayCharacterCount(String(remaining), compact: language.map(usesCompactWritingSystem) ?? false)
+            > maximumCharacterCount,
+          remaining.count > 1 {
+      let upper = min(remaining.count - 1, maximumCharacterCount)
+      let lower = max(1, upper / 2)
+      let wordBoundaries = wordBoundaryOffsets(in: remaining)
+      let splitIndex = (lower...upper).min { first, second in
+        let firstScore = boundaryScore(at: first,
+                                       in: remaining,
+                                       wordBoundaries: wordBoundaries,
+                                       language: language) * 100 + (upper - first)
+        let secondScore = boundaryScore(at: second,
+                                        in: remaining,
+                                        wordBoundaries: wordBoundaries,
+                                        language: language) * 100 + (upper - second)
+        return firstScore < secondScore
+      } ?? upper
+      let part = String(remaining[..<splitIndex]).trimmingCharacters(in: .whitespacesAndNewlines)
+      if !part.isEmpty { result.append(part) }
+      remaining.removeFirst(splitIndex)
+      while remaining.first?.isWhitespace == true { remaining.removeFirst() }
+    }
+    let final = String(remaining).trimmingCharacters(in: .whitespacesAndNewlines)
+    if !final.isEmpty,
+       final.unicodeScalars.allSatisfy(CharacterSet.punctuationCharacters.contains),
+       !result.isEmpty {
+      result[result.index(before: result.endIndex)] += final
+    } else if !final.isEmpty {
+      result.append(final)
+    }
+    return result
+  }
+
+  private func boundaryScore(at index: Int,
+                             in characters: [Character],
+                             wordBoundaries: Set<Int> = [],
+                             language: AISubtitleLanguage? = nil) -> Int {
+    guard index > 0, index < characters.count else { return 4 }
+    let previous = characters[index - 1]
+    let current = characters[index]
+    if "\u{3002}\u{FF01}\u{FF1F}!?".contains(previous) { return 0 }
+    if "\u{3001}\u{FF0C}\u{FF1B}\u{FF1A},;:".contains(previous) { return 1 }
+    if isAwkwardJapaneseBoundary(at: index, in: characters, language: language) { return 5 }
+    if previous.isWhitespace || current.isWhitespace { return 2 }
+    if wordBoundaries.contains(index) { return 2 }
+    return 3
+  }
+
+  private func isAwkwardJapaneseBoundary(at index: Int,
+                                         in characters: [Character],
+                                         language: AISubtitleLanguage?) -> Bool {
+    guard primaryLanguageCode(language) == "ja" else { return false }
+    let before = String(characters[..<index])
+    let after = String(characters[index...])
+    if before.hasSuffix("っ") && after.hasPrefix("ちゃ") { return true }
+    if before.hasSuffix("な") && after.hasPrefix("るほど") { return true }
+    let continuationPrefixes = [
+      "たん", "た", "った", "って", "て", "で", "ない", "なかった", "ます", "ました",
+      "ません", "です", "でした", "だった", "だ", "ん", "の", "に", "を", "が",
+      "は", "へ", "も", "と", "か", "ね", "よ", "ば", "な", "く", "れ", "られ",
+      "けど", "から", "ので"
+    ]
+    let incompleteSuffixes = ["かっ", "けれ", "でし", "まし", "ませ", "じゃ", "ちゃ", "多"]
+    return continuationPrefixes.contains(where: after.hasPrefix)
+      || incompleteSuffixes.contains(where: before.hasSuffix)
+  }
+
+  private func primaryLanguageCode(_ language: AISubtitleLanguage?) -> String? {
+    language?.code.replacingOccurrences(of: "_", with: "-")
+      .lowercased()
+      .split(separator: "-")
+      .first
+      .map(String.init)
+  }
+
+  private func usesCompactWritingSystem(_ language: AISubtitleLanguage) -> Bool {
+    primaryLanguageCode(language).map { ["zh", "ja", "ko"].contains($0) } ?? false
+  }
+
+  private func usesSpacelessWritingSystem(_ language: AISubtitleLanguage?) -> Bool {
+    primaryLanguageCode(language).map { ["zh", "ja"].contains($0) } ?? false
+  }
+
+  private func wordBoundaryOffsets(in characters: [Character]) -> Set<Int> {
+    let text = String(characters)
+    let tokenizer = NLTokenizer(unit: .word)
+    tokenizer.string = text
+    var result: Set<Int> = []
+    tokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { range, _ in
+      result.insert(text.distance(from: text.startIndex, to: range.upperBound))
+      return true
+    }
+    return result
+  }
+
+  private func joined(_ first: String, _ second: String, compact: Bool) -> String {
+    guard !first.isEmpty else { return second }
+    guard !second.isEmpty else { return first }
+    return compact ? first + second : first + " " + second
+  }
+}
+
+/// Turns unstable final speech results into short, translatable phrases while preserving
+/// meaningful speech turns. This intentionally does not try to infer speakers.
+struct AISubtitleSemanticSegmenter {
+  var options = AISubtitleSemanticSegmenterOptions()
+  private let partitioner = AISubtitleTextPartitioner()
+
+  func assemble(_ segments: [AISubtitleSegment], language: AISubtitleLanguage) -> [AISubtitleSegment] {
+    let compact = usesCompactWritingSystem(language)
+    let joinsWithoutSpaces = usesSpacelessWritingSystem(language)
+    let sorted = AISubtitleForeignScriptNoiseFilter().filter(segments, language: language)
+      .compactMap(normalized)
+      .sorted {
+        if $0.timeRange.start == $1.timeRange.start {
+          return $0.timeRange.end < $1.timeRange.end
+        }
+        return $0.timeRange.start < $1.timeRange.start
+      }
+
+    var result: [AISubtitleSegment] = []
+    for segment in sorted {
+      guard var previous = result.popLast() else {
+        result.append(segment)
+        continue
+      }
+      let gap = segment.timeRange.start - previous.timeRange.end
+      if previous.text == segment.text && gap < 0 {
+        previous.timeRange.end = max(previous.timeRange.end, segment.timeRange.end)
+        result.append(previous)
+        continue
+      }
+      if let revisedText = mergedOverlapRevision(previous, segment) {
+        previous.timeRange.end = max(previous.timeRange.end, segment.timeRange.end)
+        previous.text = revisedText
+        result.append(previous)
+        continue
+      }
+      if shouldAbsorbRepeatedSuffix(previous, segment, gap: gap) {
+        previous.timeRange.end = max(previous.timeRange.end, segment.timeRange.end)
+        result.append(previous)
+        continue
+      }
+      if shouldMerge(previous, segment, gap: gap, compact: compact, language: language) {
+        previous.timeRange.end = max(previous.timeRange.end, segment.timeRange.end)
+        previous.text = joined(previous.text, segment.text, compact: joinsWithoutSpaces)
+        result.append(previous)
+        continue
+      }
+
+      var current = segment
+      if current.timeRange.start < previous.timeRange.end {
+        current.timeRange.start = previous.timeRange.end
+      }
+      result.append(previous)
+      if !current.timeRange.isEmpty { result.append(current) }
+    }
+    return result.flatMap { translationBlocks(for: $0, language: language, compact: compact) }
+  }
+
+  private func translationBlocks(for segment: AISubtitleSegment,
+                                 language: AISubtitleLanguage,
+                                 compact: Bool) -> [AISubtitleSegment] {
+    let maximumCharacterCount = compact
+      ? options.maximumCompactTranslationBlockCharacterCount
+      : options.maximumLatinTranslationBlockCharacterCount
+    let minimumPartCount = max(1, Int(ceil(segment.timeRange.duration
+      / options.maximumTranslationBlockDuration)))
+    var parts = partitioner.parts(segment.text,
+                                  maximumCharacterCount: maximumCharacterCount,
+                                  maximumSentenceCount: options.maximumSentencesPerTranslationBlock,
+                                  minimumPartCount: minimumPartCount,
+                                  compact: compact,
+                                  language: language)
+    let maximumReadablePartCount = max(1, Int(floor(segment.timeRange.duration
+      / options.minimumTranslationBlockDuration)))
+    if parts.count > maximumReadablePartCount {
+      parts = partitioner.balancedParts(segment.text,
+                                        count: maximumReadablePartCount,
+                                        compact: compact,
+                                        language: language)
+    }
+    guard parts.count > 1 else { return [segment] }
+    let weights = parts.map { max(1, partitioner.readableCharacterCount($0)) }
+    var remainingWeight = weights.reduce(0, +)
+    var remainingDuration = segment.timeRange.duration
+    var cursor = segment.timeRange.start
+    return parts.enumerated().map { index, text in
+      let end: Double
+      if index == parts.count - 1 {
+        end = segment.timeRange.end
+      } else {
+        let remainingPartCount = parts.count - index - 1
+        let minimumAllocation = max(options.minimumTranslationBlockDuration,
+                                    remainingDuration
+                                      - options.maximumTranslationBlockDuration
+                                      * Double(remainingPartCount))
+        let maximumAllocation = remainingDuration
+          - options.minimumTranslationBlockDuration * Double(remainingPartCount)
+        let proportionalAllocation = remainingWeight > 0
+          ? remainingDuration * Double(weights[index]) / Double(remainingWeight)
+          : remainingDuration / Double(remainingPartCount + 1)
+        let allocation = min(options.maximumTranslationBlockDuration,
+                             maximumAllocation,
+                             max(minimumAllocation, proportionalAllocation))
+        end = min(segment.timeRange.end, cursor + allocation)
+      }
+      defer {
+        remainingDuration -= end - cursor
+        remainingWeight -= weights[index]
+        cursor = end
+      }
+      return AISubtitleSegment(id: "\(segment.id)-context-\(index + 1)",
+                               timeRange: AISubtitleTimeRange(start: cursor, end: end),
+                               text: text,
+                               language: language,
+                               confidence: segment.confidence)
+    }
+  }
+
+  private func shouldMerge(_ first: AISubtitleSegment,
+                           _ second: AISubtitleSegment,
+                           gap: Double,
+                           compact: Bool,
+                           language: AISubtitleLanguage) -> Bool {
+    guard gap >= -0.05, gap <= options.maximumMergeGap else { return false }
+    let normalizedGap = max(0, gap)
+    let combinedDuration = max(first.timeRange.end, second.timeRange.end) - first.timeRange.start
+    let combinedCount = readableCharacterCount(first.text + second.text)
+    let maximumCount = compact
+      ? options.maximumCompactCharacterCount
+      : options.maximumLatinCharacterCount
+    let hasBrokenWordBoundary = normalizedGap <= options.unstableResultMergeGap
+      && compact
+      && !partitioner.isNaturalBoundary(between: first.text,
+                                        and: second.text,
+                                        language: language)
+    if hasBrokenWordBoundary {
+      let recoveryMaximumCount = compact
+        ? options.maximumCompactRecoveryCharacterCount
+        : options.maximumLatinRecoveryCharacterCount
+      return combinedDuration <= options.maximumRecoveryDuration
+        && combinedCount <= recoveryMaximumCount
+    }
+    if gap <= options.unstableResultMergeGap,
+       hasIncompleteTrailingPhrase(first.text, language: language) {
+      let recoveryMaximumCount = compact
+        ? options.maximumCompactRecoveryCharacterCount
+        : options.maximumLatinRecoveryCharacterCount
+      return combinedDuration <= options.maximumRecoveryDuration
+        && combinedCount <= recoveryMaximumCount
+    }
+    if normalizedGap <= options.unstableResultMergeGap,
+       isFragment(second, compact: compact, language: language),
+       !isStandaloneResponse(second.text, language: language) {
+      let recoveryMaximumCount = compact
+        ? options.maximumCompactRecoveryCharacterCount
+        : options.maximumLatinRecoveryCharacterCount
+      return combinedDuration <= options.maximumRecoveryDuration
+        && combinedCount <= recoveryMaximumCount
+    }
+    guard combinedDuration <= options.maximumDuration, combinedCount <= maximumCount else { return false }
+    if isPunctuationOnly(second.text) { return true }
+    if isFiller(first.text) && isFiller(second.text) { return true }
+    if normalizedGap <= options.unstableResultMergeGap,
+       min(first.timeRange.duration, second.timeRange.duration) < options.unstableResultDuration,
+       !hasTerminalSentenceBoundary(first.text),
+       !isStandaloneResponse(first.text, language: language),
+       !isStandaloneResponse(second.text, language: language) {
+      return true
+    }
+    return isFragment(first, compact: compact, language: language)
+      || isFragment(second, compact: compact, language: language)
+  }
+
+  private func shouldAbsorbRepeatedSuffix(_ first: AISubtitleSegment,
+                                          _ second: AISubtitleSegment,
+                                          gap: Double) -> Bool {
+    let isShortContinuation = gap >= -0.05
+      && gap <= options.unstableResultMergeGap
+      && second.timeRange.duration <= options.unstableResultDuration
+    let isOverlappingRevision = gap < -0.05
+      && second.timeRange.end >= first.timeRange.end
+      && second.timeRange.end - first.timeRange.end <= 0.5
+    guard isShortContinuation || isOverlappingRevision else { return false }
+    let firstText = comparableText(first.text)
+    let secondText = comparableText(second.text)
+    return secondText.count >= 4
+      && firstText.count > secondText.count
+      && firstText.hasSuffix(secondText)
+  }
+
+  private func mergedOverlapRevision(_ first: AISubtitleSegment,
+                                     _ second: AISubtitleSegment) -> String? {
+    guard second.timeRange.start < first.timeRange.end,
+          second.timeRange.end >= first.timeRange.end,
+          second.timeRange.end - first.timeRange.end <= 0.75 else { return nil }
+    let firstTokens = speechTokens(first.text)
+    let secondTokens = speechTokens(second.text)
+    guard firstTokens.count >= 3, secondTokens.count >= 3 else { return nil }
+    let maximumOverlap = min(firstTokens.count, secondTokens.count)
+    guard let overlapCount = stride(from: maximumOverlap, through: 3, by: -1).first(where: { count in
+      let firstSuffix = firstTokens.suffix(count).map { $0.comparable }
+      let secondPrefix = secondTokens.prefix(count).map { $0.comparable }
+      return firstSuffix.elementsEqual(secondPrefix)
+    }) else { return nil }
+    guard overlapCount < secondTokens.count else { return first.text }
+    let uniqueTail = secondTokens.dropFirst(overlapCount).map { $0.original }.joined(separator: " ")
+    let prefix = first.text.trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
+    return prefix.isEmpty ? uniqueTail : prefix + " " + uniqueTail
+  }
+
+  private func speechTokens(_ text: String) -> [(original: String, comparable: String)] {
+    text.components(separatedBy: .whitespacesAndNewlines).compactMap { token in
+      let comparable = token.lowercased().unicodeScalars
+        .filter(CharacterSet.alphanumerics.contains)
+        .map(String.init)
+        .joined()
+      guard !comparable.isEmpty else { return nil }
+      let canonical: String
+      if comparable.count > 4, comparable.hasSuffix("s"), !comparable.hasSuffix("ss") {
+        canonical = String(comparable.dropLast())
+      } else {
+        canonical = comparable
+      }
+      return (token, canonical)
+    }
+  }
+
+  private func comparableText(_ text: String) -> String {
+    text.lowercased().unicodeScalars.filter {
+      !CharacterSet.whitespacesAndNewlines.contains($0)
+        && !CharacterSet.punctuationCharacters.contains($0)
+    }.map(String.init).joined()
+  }
+
+  private func isFragment(_ segment: AISubtitleSegment,
+                          compact: Bool,
+                          language: AISubtitleLanguage) -> Bool {
+    let count = readableCharacterCount(segment.text)
+    if compact, count <= 1, !isStandaloneCompactResponse(segment.text, language: language) { return true }
+    if !compact, count <= 3, segment.timeRange.duration <= 0.6 { return true }
+    let shortLimit = compact ? 4 : 8
+    return segment.timeRange.duration <= options.shortFragmentDuration && count <= shortLimit
+  }
+
+  private func isStandaloneCompactResponse(_ text: String,
+                                           language: AISubtitleLanguage) -> Bool {
+    let normalized = text.trimmingCharacters(in: .punctuationCharacters.union(.whitespaces))
+    let primaryCode = language.code.replacingOccurrences(of: "_", with: "-")
+      .lowercased()
+      .split(separator: "-")
+      .first
+      .map(String.init)
+    switch primaryCode {
+    case "zh":
+      return ["嗯", "啊", "哦", "好", "对", "是", "不", "行"].contains(normalized)
+    case "ja":
+      return ["あ", "え", "ん"].contains(normalized)
+    case "ko":
+      return ["응", "어", "네"].contains(normalized)
+    default:
+      return false
+    }
+  }
+
+  private func isStandaloneResponse(_ text: String,
+                                    language: AISubtitleLanguage) -> Bool {
+    let normalized = text.lowercased()
+      .trimmingCharacters(in: .punctuationCharacters.union(.whitespaces))
+    let primaryCode = language.code.replacingOccurrences(of: "_", with: "-")
+      .lowercased()
+      .split(separator: "-")
+      .first
+      .map(String.init)
+    switch primaryCode {
+    case "zh":
+      return ["嗯", "啊", "哦", "好", "好的", "对", "是", "是的", "不", "不是", "行", "可以"].contains(normalized)
+    case "ja":
+      return ["あ", "え", "ん", "はい", "うん", "ええ", "そう", "そうです", "なるほど", "大丈夫"].contains(normalized)
+    case "ko":
+      return ["응", "어", "네", "아니", "맞아"].contains(normalized)
+    default:
+      return ["yes", "yeah", "no", "okay", "ok", "right", "sure"].contains(normalized)
+    }
+  }
+
+  private func hasIncompleteTrailingPhrase(_ text: String,
+                                           language: AISubtitleLanguage) -> Bool {
+    let primaryCode = language.code.replacingOccurrences(of: "_", with: "-")
+      .lowercased()
+      .split(separator: "-")
+      .first
+      .map(String.init)
+    guard primaryCode == "en" else { return false }
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    if let last = trimmed.last, ",;:".contains(last) { return true }
+    let words = trimmed.lowercased()
+      .components(separatedBy: CharacterSet.alphanumerics.inverted)
+      .filter { !$0.isEmpty }
+    guard let last = words.last else { return false }
+    if [
+      "a", "an", "the", "and", "but", "or", "of", "to", "in", "on", "at", "for", "from",
+      "with", "by", "as", "than", "that", "who", "which", "because", "if", "when", "while",
+      "my", "your", "his", "her", "our", "their", "its", "can", "could", "would", "should",
+      "will", "have", "has", "had", "is", "are", "was", "were"
+    ].contains(last) {
+      return true
+    }
+
+    let tagger = NLTagger(tagSchemes: [.lexicalClass])
+    tagger.string = trimmed
+    var lastLexicalClass: NLTag?
+    tagger.enumerateTags(in: trimmed.startIndex..<trimmed.endIndex,
+                         unit: .word,
+                         scheme: .lexicalClass,
+                         options: [.omitWhitespace, .omitPunctuation]) { tag, _ in
+      if let tag { lastLexicalClass = tag }
+      return true
+    }
+    return lastLexicalClass.map {
+      [.adjective, .determiner, .preposition, .conjunction, .particle, .number].contains($0)
+    } ?? false
+  }
+
+  private func hasTerminalSentenceBoundary(_ text: String) -> Bool {
+    var characters = Array(text.trimmingCharacters(in: .whitespacesAndNewlines))
+    while let last = characters.last,
+          "\"'\u{2019}\u{201D}\u{3009}\u{300B}\u{300D}\u{300F}\u{3011})]}\u{FF09}".contains(last) {
+      characters.removeLast()
+    }
+    guard let last = characters.last else { return false }
+    return "\u{3002}\u{FF01}\u{FF1F}!?".contains(last) || last == "."
+  }
+
+  private func normalized(_ segment: AISubtitleSegment) -> AISubtitleSegment? {
+    let text = segment.text
+      .components(separatedBy: .whitespacesAndNewlines)
+      .filter { !$0.isEmpty }
+      .joined(separator: " ")
+      .replacingOccurrences(of: #"\s+([,.;:!?])"#,
+                            with: "$1",
+                            options: .regularExpression)
+    guard !text.isEmpty, !segment.timeRange.isEmpty else { return nil }
+    var result = segment
+    result.text = text
+    return result
+  }
+
+  private func joined(_ first: String, _ second: String, compact: Bool) -> String {
+    if isPunctuationOnly(second) { return first + second }
+    return compact ? first + second : first + " " + second
+  }
+
+  private func readableCharacterCount(_ text: String) -> Int {
+    text.filter { !$0.isWhitespace }.count
+  }
+
+  private func isPunctuationOnly(_ text: String) -> Bool {
+    !text.unicodeScalars.isEmpty
+      && text.unicodeScalars.allSatisfy(CharacterSet.punctuationCharacters.contains)
+  }
+
+  private func isFiller(_ text: String) -> Bool {
+    let normalized = text.lowercased().trimmingCharacters(in: .punctuationCharacters.union(.whitespaces))
+    return ["嗯", "啊", "哦", "呃", "唔", "あ", "え", "うん", "えっと", "uh", "um", "hmm", "oh", "ah"]
+      .contains(normalized)
+  }
+
+  private func usesCompactWritingSystem(_ language: AISubtitleLanguage) -> Bool {
+    let primaryCode = language.code.replacingOccurrences(of: "_", with: "-")
+      .lowercased()
+      .split(separator: "-")
+      .first
+      .map(String.init)
+    return primaryCode.map { ["zh", "ja", "ko"].contains($0) } ?? false
+  }
+
+  private func usesSpacelessWritingSystem(_ language: AISubtitleLanguage) -> Bool {
+    let primaryCode = language.code.replacingOccurrences(of: "_", with: "-")
+      .lowercased()
+      .split(separator: "-")
+      .first
+      .map(String.init)
+    return primaryCode.map { ["zh", "ja"].contains($0) } ?? false
+  }
 }
 
 struct AISubtitleTimelineAssembler {
   var options = AISubtitleAssemblerOptions()
+  private static let trailingPunctuation = Set(".,;:!?\u{2026}\u{3001}\u{3002}\u{FF0C}\u{FF0E}\u{FF1B}\u{FF1A}\u{FF01}\u{FF1F}")
+  private static let closingCharacters = Set("\"'\u{2019}\u{201D}\u{3009}\u{300B}\u{300D}\u{300F}\u{3011}\u{3015}\u{3017}\u{3019}\u{301B})]}\u{FF09}")
+  private static let fillerTokens: Set<String> = [
+    "\u{55EF}", "\u{554A}", "\u{54E6}", "\u{5443}", "\u{5514}", "\u{54CE}", "\u{5440}", "\u{8BF6}", "\u{6B38}", "\u{54FC}", "\u{54C8}",
+    "\u{3042}", "\u{3042}\u{3042}", "\u{3048}", "\u{3048}\u{3048}", "\u{3046}\u{3093}", "\u{3046}\u{30FC}\u{3093}", "\u{3048}\u{3063}\u{3068}", "\u{3042}\u{306E}", "\u{307E}\u{3042}",
+    "\u{C74C}", "\u{C5B4}", "\u{C544}", "\u{C751}",
+    "uh", "um", "hmm", "mm", "oh", "ah", "er"
+  ]
 
   func assemble(_ segments: [AISubtitleSegment], targetLanguage: AISubtitleLanguage) -> [AISubtitleCue] {
     let sorted = segments
@@ -38,15 +872,22 @@ struct AISubtitleTimelineAssembler {
       }
 
       let gap = cue.timeRange.start - previous.timeRange.end
-      if previous.text == cue.text && gap <= options.duplicateMergeGap {
+      if previous.text == cue.text && gap < 0 {
         previous.timeRange.end = max(previous.timeRange.end, cue.timeRange.end)
         cues.append(previous)
         continue
       }
 
-      if isPunctuationOnly(cue.text), gap >= 0, gap <= options.duplicateMergeGap {
+      if isPunctuationOnly(cue.text), gap >= 0, gap <= options.punctuationMergeGap {
         previous.timeRange.end = max(previous.timeRange.end, cue.timeRange.end)
         previous.text += cue.text
+        cues.append(previous)
+        continue
+      }
+
+      if shouldMergeFillers(previous.text, cue.text, gap: gap) {
+        previous.timeRange.end = max(previous.timeRange.end, cue.timeRange.end)
+        previous.text += " " + cue.text
         cues.append(previous)
         continue
       }
@@ -59,19 +900,106 @@ struct AISubtitleTimelineAssembler {
         continue
       }
 
-      let mergedText = previous.text + separator(between: previous.text, and: cue.text) + cue.text
-      if gap >= 0,
-         gap <= options.adjacentMergeGap,
-         mergedText.count <= options.maximumMergedCharacterCount {
-        previous.timeRange.end = cue.timeRange.end
-        previous.text = mergedText
-        cues.append(previous)
+      // A final speech result is the closest signal available for a turn of speech.
+      // Keep adjacent results separate so consecutive speakers are not collapsed into one cue.
+      cues.append(previous)
+      cues.append(cue)
+    }
+    let splitCues = cues.flatMap { splitCueForReading($0, targetLanguage: targetLanguage) }
+    return mergingTrailingClosingCues(splitCues)
+      .compactMap(removingEdgePunctuation)
+  }
+
+  private func splitCueForReading(_ cue: AISubtitleCue,
+                                  targetLanguage: AISubtitleLanguage) -> [AISubtitleCue] {
+    let maximumCharacterCount = usesCompactWritingSystem(targetLanguage)
+      ? options.maximumCJKCueCharacterCount
+      : options.maximumLatinCueCharacterCount
+    let sentenceParts = sentenceParts(in: cue.text)
+      .flatMap { chunks(in: $0, maximumCharacterCount: maximumCharacterCount) }
+      .filter { !$0.isEmpty }
+    guard sentenceParts.count > 1 else { return [cue] }
+
+    let weights = sentenceParts.map { max(1, readableCharacterCount(in: $0)) }
+    let totalWeight = weights.reduce(0, +)
+    let duration = cue.timeRange.duration
+    var cursor = cue.timeRange.start
+    return sentenceParts.enumerated().map { index, text in
+      let end: Double
+      if index == sentenceParts.count - 1 {
+        end = cue.timeRange.end
       } else {
-        cues.append(previous)
-        cues.append(cue)
+        end = min(cue.timeRange.end,
+                  cursor + duration * Double(weights[index]) / Double(totalWeight))
+      }
+      defer { cursor = end }
+      return AISubtitleCue(id: "\(cue.id)-\(index + 1)",
+                           timeRange: AISubtitleTimeRange(start: cursor, end: end),
+                           text: text,
+                           originalText: cue.originalText,
+                           language: cue.language)
+    }
+  }
+
+  private func sentenceParts(in text: String) -> [String] {
+    let characters = Array(text)
+    var parts: [String] = []
+    var current = ""
+    for index in characters.indices {
+      let character = characters[index]
+      current.append(character)
+      let nextIsBoundary = index == characters.index(before: characters.endIndex)
+        || characters[characters.index(after: index)].isWhitespace
+      let isSentenceEnd = "。！？!?".contains(character)
+        || (character == "." && nextIsBoundary)
+        || character == "\n"
+      if isSentenceEnd {
+        let part = current.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !part.isEmpty { parts.append(part) }
+        current = ""
       }
     }
-    return cues
+    let remainder = current.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !remainder.isEmpty { parts.append(remainder) }
+    return parts.isEmpty ? [text] : parts
+  }
+
+  private func chunks(in text: String, maximumCharacterCount: Int) -> [String] {
+    var remaining = Array(text.trimmingCharacters(in: .whitespacesAndNewlines))
+    var result: [String] = []
+    while remaining.count > maximumCharacterCount {
+      let lowerBound = max(1, maximumCharacterCount / 2)
+      let candidates = Array(remaining.prefix(maximumCharacterCount))
+      var splitIndex = candidates.indices.reversed().first { index in
+        index >= lowerBound && "，、；：,;:".contains(candidates[index])
+      }
+      if splitIndex == nil {
+        splitIndex = candidates.indices.reversed().first { index in
+          index >= lowerBound && candidates[index].isWhitespace
+        }
+      }
+      let end = min(remaining.count, (splitIndex ?? maximumCharacterCount - 1) + 1)
+      let part = String(remaining[..<end]).trimmingCharacters(in: .whitespacesAndNewlines)
+      if !part.isEmpty { result.append(part) }
+      remaining.removeFirst(end)
+      while remaining.first?.isWhitespace == true { remaining.removeFirst() }
+    }
+    let last = String(remaining).trimmingCharacters(in: .whitespacesAndNewlines)
+    if !last.isEmpty { result.append(last) }
+    return result
+  }
+
+  private func readableCharacterCount(in text: String) -> Int {
+    text.filter { !$0.isWhitespace }.count
+  }
+
+  private func usesCompactWritingSystem(_ language: AISubtitleLanguage) -> Bool {
+    let primaryCode = language.code.replacingOccurrences(of: "_", with: "-")
+      .lowercased()
+      .split(separator: "-")
+      .first
+      .map(String.init)
+    return primaryCode.map { ["zh", "ja", "ko"].contains($0) } ?? false
   }
 
   private func normalizedSegment(_ segment: AISubtitleSegment) -> AISubtitleSegment? {
@@ -97,9 +1025,492 @@ struct AISubtitleTimelineAssembler {
       && text.unicodeScalars.allSatisfy(CharacterSet.punctuationCharacters.contains)
   }
 
-  private func separator(between first: String, and second: String) -> String {
-    guard let last = first.last, let next = second.first else { return "" }
-    return last.isASCII && next.isASCII ? " " : ""
+  private func shouldMergeFillers(_ first: String, _ second: String, gap: Double) -> Bool {
+    guard gap >= 0, gap <= options.fillerMergeGap,
+          isFillerOnly(first), isFillerOnly(second) else { return false }
+    return readableCharacterCount(in: first + second) <= options.maximumMergedFillerCharacterCount
+  }
+
+  private func isFillerOnly(_ text: String) -> Bool {
+    let tokens = text.lowercased()
+      .components(separatedBy: .whitespacesAndNewlines)
+      .map { token in
+        String(token.unicodeScalars.filter { !CharacterSet.punctuationCharacters.contains($0) })
+      }
+      .filter { !$0.isEmpty }
+    guard !tokens.isEmpty else { return false }
+    if tokens.count > 1 { return tokens.allSatisfy(Self.fillerTokens.contains) }
+    let normalized = tokens[0]
+    if Self.fillerTokens.contains(normalized) { return true }
+    guard let first = normalized.first,
+          Self.fillerTokens.contains(String(first)) else { return false }
+    return normalized.allSatisfy { $0 == first }
+  }
+
+  private func mergingTrailingClosingCues(_ cues: [AISubtitleCue]) -> [AISubtitleCue] {
+    var result: [AISubtitleCue] = []
+    for cue in cues {
+      let text = cue.text.trimmingCharacters(in: .whitespacesAndNewlines)
+      if !text.isEmpty,
+         text.allSatisfy(Self.closingCharacters.contains),
+         var previous = result.popLast() {
+        previous.text += text
+        previous.timeRange.end = max(previous.timeRange.end, cue.timeRange.end)
+        result.append(previous)
+      } else {
+        result.append(cue)
+      }
+    }
+    return result
+  }
+
+  private func removingEdgePunctuation(_ cue: AISubtitleCue) -> AISubtitleCue? {
+    var text = cue.text.trimmingCharacters(in: .whitespacesAndNewlines)
+    var characters = Array(text)
+    while let first = characters.first, Self.trailingPunctuation.contains(first) {
+      characters.removeFirst()
+    }
+    var closingSuffix: [Character] = []
+    while let last = characters.last, Self.closingCharacters.contains(last) {
+      closingSuffix.append(characters.removeLast())
+    }
+    while let last = characters.last, Self.trailingPunctuation.contains(last) {
+      characters.removeLast()
+    }
+    characters.append(contentsOf: closingSuffix.reversed())
+    text = String(characters).trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !text.isEmpty else { return nil }
+    var normalized = cue
+    normalized.text = text
+    return normalized
+  }
+
+}
+
+struct AISubtitlePairedTimeline {
+  var transcript: [AISubtitleSegment]
+  var originalCues: [AISubtitleCue]
+  var translatedCues: [AISubtitleCue]
+}
+
+struct AISubtitleReadingOptions {
+  var minimumDisplayDuration: Double = 1
+  var maximumDisplayDuration: Double = 6
+  var compactCharactersPerSecond: Double = 11
+  var latinCharactersPerSecond: Double = 17
+  var compactLineCharacterCount: Int = 22
+  var latinLineCharacterCount: Int = 42
+  var maximumCompactCueCharacterCount: Int = 28
+  var maximumLatinCueCharacterCount: Int = 72
+  var maximumSentencesPerCue: Int = 1
+  var minimumSplitCueDuration: Double = 1.1
+  var minimumStableCueDuration: Double = 0.8
+  var maximumBoundaryAdjustment: Double = 0.35
+}
+
+/// Keeps source and target inside the same semantic speech ranges while allowing each
+/// language to choose its own display segmentation and reading rhythm.
+struct AISubtitlePairedTimelineAssembler {
+  var readingOptions = AISubtitleReadingOptions()
+  private let partitioner = AISubtitleTextPartitioner()
+  private static let trailingPunctuation = Set(".,;:!?\u{2026}\u{3001}\u{3002}\u{FF0C}\u{FF0E}\u{FF1B}\u{FF1A}\u{FF01}\u{FF1F}")
+  private static let closingCharacters = Set("\"'\u{2019}\u{201D}\u{3009}\u{300B}\u{300D}\u{300F}\u{3011}\u{3015}\u{3017}\u{3019}\u{301B})]}\u{FF09}")
+
+  private struct Pair {
+    var id: String
+    var timeRange: AISubtitleTimeRange
+    var sourceText: String
+    var translatedText: String
+  }
+
+  func assemble(transcript: [AISubtitleSegment],
+                translatedCues: [AISubtitleCue],
+                sourceLanguage: AISubtitleLanguage,
+                targetLanguage: AISubtitleLanguage) -> AISubtitlePairedTimeline {
+    let translatedByID = Dictionary(translatedCues.map { ($0.id, $0) },
+                                    uniquingKeysWith: { first, _ in first })
+    let sameLanguage = sourceLanguage.isEquivalent(to: targetLanguage)
+    let sorted = transcript
+      .compactMap(normalizedSegment)
+      .sorted {
+        if $0.timeRange.start == $1.timeRange.start {
+          return $0.timeRange.end < $1.timeRange.end
+        }
+        return $0.timeRange.start < $1.timeRange.start
+      }
+
+    var pairs: [Pair] = []
+    for segment in sorted {
+      let translatedText: String
+      if let cue = translatedByID[segment.id] {
+        translatedText = cue.text
+      } else if sameLanguage {
+        translatedText = segment.text
+      } else {
+        continue
+      }
+      guard let sourceText = removingEdgePunctuation(segment.text),
+            let targetText = removingEdgePunctuation(translatedText) else { continue }
+      var pair = Pair(id: segment.id,
+                      timeRange: segment.timeRange,
+                      sourceText: sourceText,
+                      translatedText: targetText)
+      guard var previous = pairs.popLast() else {
+        pairs.append(pair)
+        continue
+      }
+      let gap = pair.timeRange.start - previous.timeRange.end
+      if previous.sourceText == pair.sourceText && gap < 0 {
+        previous.timeRange.end = max(previous.timeRange.end, pair.timeRange.end)
+        pairs.append(previous)
+        continue
+      }
+      if pair.timeRange.start < previous.timeRange.end {
+        pair.timeRange.start = previous.timeRange.end
+      }
+      pairs.append(previous)
+      if !pair.timeRange.isEmpty { pairs.append(pair) }
+    }
+
+    for index in pairs.indices.dropLast() {
+      let requiredDuration = readableDuration(sourceText: pairs[index].sourceText,
+                                              sourceLanguage: sourceLanguage,
+                                              translatedText: pairs[index].translatedText,
+                                              targetLanguage: targetLanguage)
+      let availableEnd = pairs[pairs.index(after: index)].timeRange.start
+      pairs[index].timeRange.end = min(availableEnd,
+                                       max(pairs[index].timeRange.end,
+                                           pairs[index].timeRange.start + requiredDuration))
+    }
+    smoothBoundaries(&pairs,
+                     sourceLanguage: sourceLanguage,
+                     targetLanguage: targetLanguage)
+
+    let originalCues = pairs.flatMap {
+      displayCues(from: $0,
+                  text: $0.sourceText,
+                  language: sourceLanguage,
+                  originalText: nil)
+    }
+    let normalizedTranslatedCues = pairs.flatMap {
+      displayCues(from: $0,
+                  text: $0.translatedText,
+                  language: targetLanguage,
+                  originalText: $0.sourceText)
+    }
+    let normalizedTranscript = originalCues.map {
+      AISubtitleSegment(id: $0.id,
+                        timeRange: $0.timeRange,
+                        text: $0.text.replacingOccurrences(of: "\n", with: " "),
+                        language: sourceLanguage)
+    }
+    return AISubtitlePairedTimeline(transcript: normalizedTranscript,
+                                    originalCues: originalCues,
+                                    translatedCues: normalizedTranslatedCues)
+  }
+
+  private func displayCues(from pair: Pair,
+                           text: String,
+                           language: AISubtitleLanguage,
+                           originalText: String?) -> [AISubtitleCue] {
+    let compact = usesCompactWritingSystem(language)
+    let maximumCharacterCount = compact
+      ? readingOptions.maximumCompactCueCharacterCount
+      : readingOptions.maximumLatinCueCharacterCount
+    let naturalParts = partitioner.parts(
+      text,
+      maximumCharacterCount: maximumCharacterCount,
+      maximumSentenceCount: readingOptions.maximumSentencesPerCue,
+      compact: compact,
+      language: language)
+    let lineCapacity = 2 * (compact
+      ? readingOptions.compactLineCharacterCount
+      : readingOptions.latinLineCharacterCount)
+    let minimumCountForTwoLineDisplay = max(1,
+      Int(ceil(Double(partitioner.displayCharacterCount(text, compact: compact))
+        / Double(lineCapacity))))
+    let maximumCountForDuration = max(1, Int(floor(pair.timeRange.duration
+      / readingOptions.minimumSplitCueDuration)))
+    let desiredCount = max(naturalParts.count, minimumCountForTwoLineDisplay)
+    var count = min(desiredCount, maximumCountForDuration)
+    var cleanedParts: [String] = []
+    while count > 0 {
+      let parts = expandedParts(naturalParts,
+                                fullText: text,
+                                count: count,
+                                compact: compact,
+                                language: language)
+      cleanedParts = parts.compactMap(removingEdgePunctuation)
+      let previewDuration = min(pair.timeRange.duration,
+                                readingOptions.maximumDisplayDuration * Double(cleanedParts.count))
+      let previewWeights = cleanedParts.map {
+        max(0.01, Double(readableCharacterCount($0)) / charactersPerSecond(language))
+      }
+      let previewAllocations = proportionalDurations(for: previewWeights,
+                                                      totalDuration: previewDuration)
+      if count <= minimumCountForTwoLineDisplay
+          || cleanedParts.count <= 1
+          || previewAllocations.allSatisfy({ $0 >= readingOptions.minimumStableCueDuration }) {
+        break
+      }
+      count -= 1
+    }
+    guard !cleanedParts.isEmpty else { return [] }
+
+    let weights = cleanedParts.map { part in
+      max(0.01, Double(readableCharacterCount(part)) / charactersPerSecond(language))
+    }
+    let displayDuration = min(pair.timeRange.duration,
+                              readingOptions.maximumDisplayDuration * Double(cleanedParts.count))
+    let allocations = displayDurations(for: weights,
+                                       totalDuration: displayDuration)
+    var cursor = pair.timeRange.start
+    return cleanedParts.indices.map { index in
+      let end: Double
+      if index == cleanedParts.count - 1 {
+        end = pair.timeRange.start + displayDuration
+      } else {
+        end = min(pair.timeRange.start + displayDuration, cursor + allocations[index])
+      }
+      defer { cursor = end }
+      return AISubtitleCue(id: cleanedParts.count == 1
+        ? pair.id
+        : "\(pair.id)-display-\(index + 1)",
+        timeRange: AISubtitleTimeRange(start: cursor, end: end),
+        text: wrappedForDisplay(cleanedParts[index], language: language),
+        originalText: originalText,
+        language: language)
+    }
+  }
+
+  private func displayDurations(for weights: [Double], totalDuration: Double) -> [Double] {
+    var durations = proportionalDurations(for: weights, totalDuration: totalDuration)
+    let maximum = readingOptions.maximumDisplayDuration
+    let cappedTotal = durations.reduce(0.0) { $0 + min($1, maximum) }
+    var remaining = max(0, totalDuration - cappedTotal)
+    durations = durations.map { min($0, maximum) }
+    while remaining > 0.001 {
+      let headroom = durations.map { max(0, maximum - $0) }
+      let totalHeadroom = headroom.reduce(0, +)
+      guard totalHeadroom > 0.001 else { break }
+      for index in durations.indices {
+        let addition = min(headroom[index], remaining * headroom[index] / totalHeadroom)
+        durations[index] += addition
+      }
+      remaining = max(0, totalDuration - durations.reduce(0, +))
+    }
+    return durations
+  }
+
+  private func proportionalDurations(for weights: [Double], totalDuration: Double) -> [Double] {
+    guard !weights.isEmpty else { return [] }
+    let totalWeight = weights.reduce(0, +)
+    guard totalWeight > 0 else {
+      return weights.map { _ in totalDuration / Double(weights.count) }
+    }
+    return weights.map { totalDuration * $0 / totalWeight }
+  }
+
+  private func smoothBoundaries(_ pairs: inout [Pair],
+                                sourceLanguage: AISubtitleLanguage,
+                                targetLanguage: AISubtitleLanguage) {
+    guard pairs.count > 1 else { return }
+    for index in pairs.indices.dropLast() {
+      let nextIndex = pairs.index(after: index)
+      guard abs(pairs[index].timeRange.end - pairs[nextIndex].timeRange.start) <= 0.001 else {
+        continue
+      }
+      let currentNeed = readableDuration(sourceText: pairs[index].sourceText,
+                                         sourceLanguage: sourceLanguage,
+                                         translatedText: pairs[index].translatedText,
+                                         targetLanguage: targetLanguage)
+      let nextNeed = readableDuration(sourceText: pairs[nextIndex].sourceText,
+                                      sourceLanguage: sourceLanguage,
+                                      translatedText: pairs[nextIndex].translatedText,
+                                      targetLanguage: targetLanguage)
+      let currentDuration = pairs[index].timeRange.duration
+      let nextDuration = pairs[nextIndex].timeRange.duration
+      let moveLater = min(readingOptions.maximumBoundaryAdjustment,
+                          max(0, currentNeed - currentDuration),
+                          max(0, nextDuration - max(readingOptions.minimumDisplayDuration, nextNeed)))
+      let moveEarlier = min(readingOptions.maximumBoundaryAdjustment,
+                            max(0, nextNeed - nextDuration),
+                            max(0, currentDuration - max(readingOptions.minimumDisplayDuration, currentNeed)))
+      let adjustment = moveLater > 0 ? moveLater : -moveEarlier
+      guard abs(adjustment) > 0.001 else { continue }
+      let boundary = pairs[index].timeRange.end + adjustment
+      pairs[index].timeRange.end = boundary
+      pairs[nextIndex].timeRange.start = boundary
+    }
+  }
+
+  private func expandedParts(_ naturalParts: [String],
+                             fullText: String,
+                             count: Int,
+                             compact: Bool,
+                             language: AISubtitleLanguage) -> [String] {
+    guard naturalParts.count <= count else {
+      return condensedParts(naturalParts,
+                            count: count,
+                            language: language)
+    }
+    var result = naturalParts
+    while result.count < count {
+      let candidates = result.indices.sorted {
+        partitioner.readableCharacterCount(result[$0])
+          > partitioner.readableCharacterCount(result[$1])
+      }
+      var didSplit = false
+      for index in candidates {
+        let split = partitioner.balancedParts(result[index],
+                                              count: 2,
+                                              compact: compact,
+                                              language: language)
+        guard split.count == 2 else { continue }
+        result.replaceSubrange(index...index, with: split)
+        didSplit = true
+        break
+      }
+      if !didSplit { break }
+    }
+    return result
+  }
+
+  private func condensedParts(_ parts: [String],
+                              count: Int,
+                              language: AISubtitleLanguage) -> [String] {
+    guard count > 0 else { return [] }
+    var result = parts
+    let primaryCode = language.code.replacingOccurrences(of: "_", with: "-")
+      .lowercased()
+      .split(separator: "-")
+      .first
+      .map(String.init)
+    let separator = primaryCode.map { ["zh", "ja"].contains($0) } == true ? "" : " "
+    while result.count > count {
+      guard let index = result.indices.dropLast().min(by: { first, second in
+        let firstCount = readableCharacterCount(result[first])
+          + readableCharacterCount(result[result.index(after: first)])
+        let secondCount = readableCharacterCount(result[second])
+          + readableCharacterCount(result[result.index(after: second)])
+        return firstCount < secondCount
+      }) else { break }
+      let next = result.index(after: index)
+      result.replaceSubrange(index...next, with: [result[index] + separator + result[next]])
+    }
+    return result
+  }
+
+  private func readableDuration(sourceText: String,
+                                sourceLanguage: AISubtitleLanguage,
+                                translatedText: String,
+                                targetLanguage: AISubtitleLanguage) -> Double {
+    let source = Double(readableCharacterCount(sourceText)) / charactersPerSecond(sourceLanguage)
+    let target = Double(readableCharacterCount(translatedText)) / charactersPerSecond(targetLanguage)
+    return min(readingOptions.maximumDisplayDuration,
+               max(readingOptions.minimumDisplayDuration, source, target))
+  }
+
+  private func charactersPerSecond(_ language: AISubtitleLanguage) -> Double {
+    usesCompactWritingSystem(language)
+      ? readingOptions.compactCharactersPerSecond
+      : readingOptions.latinCharactersPerSecond
+  }
+
+  private func wrappedForDisplay(_ text: String, language: AISubtitleLanguage) -> String {
+    let characters = Array(text.replacingOccurrences(of: "\n", with: " "))
+    let lineLimit = usesCompactWritingSystem(language)
+      ? readingOptions.compactLineCharacterCount
+      : readingOptions.latinLineCharacterCount
+    guard characters.count > lineLimit else { return text }
+
+    let parts = partitioner.balancedLineParts(
+      String(characters),
+      maximumLineCharacterCount: lineLimit,
+      compact: usesCompactWritingSystem(language),
+      language: language)
+    guard parts.count == 2 else { return text }
+    let first = removingLineEdgePunctuation(parts[0])
+    let second = removingLineEdgePunctuation(parts[1])
+    guard !first.isEmpty, !second.isEmpty else { return text }
+    return first + "\n" + second
+  }
+
+  private func removingLineEdgePunctuation(_ text: String) -> String {
+    var characters = Array(text.trimmingCharacters(in: .whitespacesAndNewlines))
+    while let first = characters.first, Self.trailingPunctuation.contains(first) {
+      characters.removeFirst()
+    }
+    while let last = characters.last, Self.trailingPunctuation.contains(last) {
+      characters.removeLast()
+    }
+    while characters.first?.isWhitespace == true { characters.removeFirst() }
+    return String(characters)
+  }
+
+  private func normalizedSegment(_ segment: AISubtitleSegment) -> AISubtitleSegment? {
+    let text = segment.text
+      .components(separatedBy: .whitespacesAndNewlines)
+      .filter { !$0.isEmpty }
+      .joined(separator: " ")
+    guard !text.isEmpty, !segment.timeRange.isEmpty else { return nil }
+    var normalized = segment
+    normalized.text = text
+    return normalized
+  }
+
+  private func removingEdgePunctuation(_ text: String) -> String? {
+    var characters = Array(normalizedPunctuation(in: text)
+      .trimmingCharacters(in: .whitespacesAndNewlines))
+    while let first = characters.first, Self.trailingPunctuation.contains(first) {
+      characters.removeFirst()
+    }
+    var closingSuffix: [Character] = []
+    while let last = characters.last, Self.closingCharacters.contains(last) {
+      closingSuffix.append(characters.removeLast())
+    }
+    while let last = characters.last, Self.trailingPunctuation.contains(last) {
+      characters.removeLast()
+    }
+    characters.append(contentsOf: closingSuffix.reversed())
+    let result = String(characters).trimmingCharacters(in: .whitespacesAndNewlines)
+    return result.isEmpty ? nil : result
+  }
+
+  private func normalizedPunctuation(in text: String) -> String {
+    let collapsible = Set("。！？!?.,，")
+    let compactPunctuation = Set("。！？，、；：")
+    var result: [Character] = []
+    for character in text {
+      if character.isWhitespace,
+         let previous = result.last,
+         compactPunctuation.contains(previous) {
+        continue
+      }
+      if let previous = result.last,
+         previous == character,
+         collapsible.contains(character) {
+        continue
+      }
+      result.append(character)
+    }
+    return String(result)
+  }
+
+  private func readableCharacterCount(_ text: String) -> Int {
+    text.unicodeScalars.filter {
+      !CharacterSet.whitespacesAndNewlines.contains($0)
+        && !CharacterSet.punctuationCharacters.contains($0)
+    }.count
+  }
+
+  private func usesCompactWritingSystem(_ language: AISubtitleLanguage) -> Bool {
+    let primaryCode = language.code.replacingOccurrences(of: "_", with: "-")
+      .lowercased()
+      .split(separator: "-")
+      .first
+      .map(String.init)
+    return primaryCode.map { ["zh", "ja", "ko"].contains($0) } ?? false
   }
 }
 
@@ -152,7 +1563,7 @@ struct AISubtitleFileWriter {
 }
 
 struct AISubtitleCacheMetadata: Codable, Hashable {
-  static let currentSchemaVersion = 2
+  static let currentSchemaVersion = 12
 
   var schemaVersion: Int
   var key: AISubtitleCacheKey
@@ -217,18 +1628,31 @@ struct AISubtitleCacheStore {
             now: Date = Date()) throws -> AISubtitleCacheArtifacts {
     let artifacts = try layout.artifacts(for: key, createDirectories: true)
     let existingMetadata = try? metadata(for: key)
+    let sourceLanguage = AISubtitleLanguage(key.sourceLanguageCode ?? "und")
+    let targetLanguage = AISubtitleLanguage(key.targetLanguageCode)
+    let timeline = AISubtitlePairedTimelineAssembler().assemble(
+      transcript: transcript,
+      translatedCues: cues,
+      sourceLanguage: sourceLanguage,
+      targetLanguage: targetLanguage)
     let metadata = AISubtitleCacheMetadata(key: key,
                                            createdAt: existingMetadata?.createdAt ?? now,
                                            updatedAt: now,
                                            coveredRanges: coveredRanges,
-                                           transcriptSegmentCount: transcript.count,
-                                           cueCount: cues.count)
+                                           transcriptSegmentCount: timeline.transcript.count,
+                                           cueCount: timeline.translatedCues.count)
 
+    // Keep resumable cache data semantic. Display splitting is derived for exports only;
+    // persisting it would split the same cues again whenever a task resumes.
     try encodedData(transcript).write(to: artifacts.transcriptURL, options: .atomic)
     try encodedData(cues).write(to: artifacts.translatedCuesURL, options: .atomic)
-    try writer.string(for: cues, format: .webVTT)
+    try writer.string(for: timeline.originalCues, format: .webVTT)
+      .write(to: artifacts.originalVTTURL, atomically: true, encoding: .utf8)
+    try writer.string(for: timeline.originalCues, format: .srt)
+      .write(to: artifacts.originalSRTURL, atomically: true, encoding: .utf8)
+    try writer.string(for: timeline.translatedCues, format: .webVTT)
       .write(to: artifacts.translatedVTTURL, atomically: true, encoding: .utf8)
-    try writer.string(for: cues, format: .srt)
+    try writer.string(for: timeline.translatedCues, format: .srt)
       .write(to: artifacts.translatedSRTURL, atomically: true, encoding: .utf8)
     // Metadata is the commit marker. Readers only accept a cache after this write succeeds.
     try encodedData(metadata).write(to: artifacts.metadataURL, options: .atomic)
@@ -260,14 +1684,58 @@ struct AISubtitleCacheStore {
   }
 
   func cachedVTT(for key: AISubtitleCacheKey) -> URL? {
+    cachedArtifacts(for: key)?.translatedVTTURL
+  }
+
+  func cachedArtifacts(for key: AISubtitleCacheKey) -> AISubtitleCacheArtifacts? {
     guard let artifacts = try? layout.artifacts(for: key),
           fileManager.fileExists(atPath: artifacts.metadataURL.path),
           fileManager.fileExists(atPath: artifacts.translatedCuesURL.path),
+          fileManager.fileExists(atPath: artifacts.originalVTTURL.path),
+          fileManager.fileExists(atPath: artifacts.originalSRTURL.path),
           fileManager.fileExists(atPath: artifacts.translatedVTTURL.path),
+          fileManager.fileExists(atPath: artifacts.translatedSRTURL.path),
           (try? cachedContent(for: key)) != nil else {
       return nil
     }
-    return artifacts.translatedVTTURL
+    return artifacts
+  }
+
+  func removeCachedContent(for key: AISubtitleCacheKey) throws {
+    let directoryURL = try layout.artifacts(for: key).directoryURL
+    guard fileManager.fileExists(atPath: directoryURL.path) else { return }
+    try fileManager.removeItem(at: directoryURL)
+  }
+
+  @discardableResult
+  func refreshSubtitleFiles(for key: AISubtitleCacheKey) throws -> AISubtitleCacheArtifacts {
+    let cached = try cachedContent(for: key)
+    return try save(transcript: cached.transcript,
+                    cues: cached.cues,
+                    coveredRanges: cached.metadata.coveredRanges,
+                    for: key)
+  }
+
+  func completionProgress(for key: AISubtitleCacheKey, mediaDuration: Double) -> Double {
+    guard mediaDuration > 0,
+          let metadata = try? self.metadata(for: key),
+          metadata.schemaVersion == AISubtitleCacheMetadata.currentSchemaVersion,
+          metadata.key.stableIdentifier == key.stableIdentifier else {
+      return 0
+    }
+    let coveredDuration = boundedMergedRanges(metadata.coveredRanges,
+                                              mediaDuration: mediaDuration).reduce(0) { $0 + $1.duration }
+    return min(1, coveredDuration / mediaDuration)
+  }
+
+  func isComplete(for key: AISubtitleCacheKey, mediaDuration: Double) -> Bool {
+    guard mediaDuration > 0,
+          let metadata = try? self.metadata(for: key),
+          metadata.schemaVersion == AISubtitleCacheMetadata.currentSchemaVersion,
+          metadata.key.stableIdentifier == key.stableIdentifier else { return false }
+    let ranges = boundedMergedRanges(metadata.coveredRanges, mediaDuration: mediaDuration)
+    guard ranges.count == 1, let range = ranges.first else { return false }
+    return range.start <= 0.01 && range.end >= mediaDuration - 0.01
   }
 
   func usage() throws -> AISubtitleCacheUsage {
@@ -347,17 +1815,122 @@ struct AISubtitleCacheStore {
     decoder.dateDecodingStrategy = .millisecondsSince1970
     return decoder
   }
+
+  private func boundedMergedRanges(_ ranges: [AISubtitleTimeRange],
+                                   mediaDuration: Double) -> [AISubtitleTimeRange] {
+    var result: [AISubtitleTimeRange] = []
+    let boundedRanges = ranges.map {
+      AISubtitleTimeRange(start: min(mediaDuration, max(0, $0.start)),
+                          end: min(mediaDuration, max(0, $0.end)))
+    }
+    for range in boundedRanges.sorted(by: { $0.start < $1.start }) where !range.isEmpty {
+      guard var previous = result.popLast() else {
+        result.append(range)
+        continue
+      }
+      if range.start <= previous.end + 0.01 {
+        previous.end = max(previous.end, range.end)
+        result.append(previous)
+      } else {
+        result.append(previous)
+        result.append(range)
+      }
+    }
+    return result
+  }
+}
+
+struct AISubtitleSidecarFiles: Hashable {
+  var originalURL: URL
+  var translatedURL: URL?
+
+  var allURLs: [URL] {
+    [originalURL] + [translatedURL].compactMap { $0 }
+  }
+}
+
+struct AISubtitleSidecarPublisher {
+  var fileManager: FileManager = .default
+
+  func destinations(key: AISubtitleCacheKey, mediaURL: URL) throws -> AISubtitleSidecarFiles {
+    guard mediaURL.isFileURL else {
+      throw AISubtitleError(code: "sidecar_requires_local_media",
+                            message: "AI subtitle files can only be saved beside a local video.")
+    }
+    let directoryURL = mediaURL.deletingLastPathComponent()
+    let baseName = mediaURL.deletingPathExtension().lastPathComponent
+    let sourceCode = safeLanguageCode(key.sourceLanguageCode ?? "und")
+    let targetCode = safeLanguageCode(key.targetLanguageCode)
+    let originalURL = directoryURL
+      .appendingPathComponent("\(baseName).rawya-ai.\(sourceCode).srt", isDirectory: false)
+    let sourceLanguage = AISubtitleLanguage(key.sourceLanguageCode ?? "und")
+    let targetLanguage = AISubtitleLanguage(key.targetLanguageCode)
+    let translatedURL = sourceLanguage.isEquivalent(to: targetLanguage)
+      ? nil
+      : directoryURL.appendingPathComponent("\(baseName).rawya-ai.\(targetCode).srt", isDirectory: false)
+    return AISubtitleSidecarFiles(originalURL: originalURL, translatedURL: translatedURL)
+  }
+
+  func publish(artifacts: AISubtitleCacheArtifacts,
+               key: AISubtitleCacheKey,
+               mediaURL: URL) throws -> AISubtitleSidecarFiles {
+    let files = try destinations(key: key, mediaURL: mediaURL)
+    let directoryURL = mediaURL.deletingLastPathComponent()
+    guard fileManager.isWritableFile(atPath: directoryURL.path) else {
+      throw AISubtitleError(code: "sidecar_directory_not_writable",
+                            message: "The video folder is not writable. AI subtitles remain available in the app cache.")
+    }
+
+    let sourceLanguage = AISubtitleLanguage(key.sourceLanguageCode ?? "und")
+    let targetLanguage = AISubtitleLanguage(key.targetLanguageCode)
+    let translationRequired = !sourceLanguage.isEquivalent(to: targetLanguage)
+    guard hasSubtitleContent(at: artifacts.originalSRTURL),
+          !translationRequired || hasSubtitleContent(at: artifacts.translatedSRTURL) else {
+      throw AISubtitleError(code: "empty_subtitle_result",
+                            message: "No dialogue was recognized, so no subtitle files were saved.")
+    }
+
+    try copyAtomically(from: artifacts.originalSRTURL, to: files.originalURL)
+
+    guard translationRequired else {
+      return files
+    }
+
+    guard let translatedURL = files.translatedURL else { return files }
+    try copyAtomically(from: artifacts.translatedSRTURL, to: translatedURL)
+    return files
+  }
+
+  private func safeLanguageCode(_ code: String) -> String {
+    let normalized = code.replacingOccurrences(of: "_", with: "-").lowercased()
+    let filtered = normalized.filter { $0.isLetter || $0.isNumber || $0 == "-" }
+    return filtered.isEmpty ? "und" : filtered
+  }
+
+  private func copyAtomically(from sourceURL: URL, to destinationURL: URL) throws {
+    let data = try Data(contentsOf: sourceURL)
+    try data.write(to: destinationURL, options: .atomic)
+  }
+
+  private func hasSubtitleContent(at url: URL) -> Bool {
+    guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize else { return false }
+    return size > 0
+  }
 }
 
 struct AISubtitleFilePipeline {
-  var assembler = AISubtitleTimelineAssembler()
   var cacheStore = AISubtitleCacheStore()
 
   func prepare(transcript: [AISubtitleSegment],
                targetLanguage: AISubtitleLanguage,
                cacheKey: AISubtitleCacheKey) throws -> AISubtitleCacheArtifacts {
-    let cues = assembler.assemble(transcript, targetLanguage: targetLanguage)
-    guard !cues.isEmpty else {
+    let cues = transcript.map {
+      AISubtitleCue(id: $0.id,
+                    timeRange: $0.timeRange,
+                    text: $0.text,
+                    language: targetLanguage)
+    }
+    guard !transcript.isEmpty else {
       throw AISubtitleError(code: "empty_transcript",
                             message: "The transcript does not contain any timed subtitle text.")
     }

@@ -64,7 +64,7 @@ class AboutWindowController: NSWindowController {
 
     let (version, build) = InfoDictionary.shared.version
     versionLabel.stringValue = "\(version) Build \(build)"
-    addLocalizedBrandSubtitle(InfoDictionary.shared.localizedBrandSubtitle)
+    applyLocalizedBrandName(InfoDictionary.shared.localizedBrandSubtitle)
 
     mpvVersionLabel.stringValue = MPVOptionDefaults.shared.mpvVersion
     ffmpegVersionLabel.stringValue = "FFmpeg \(String(cString: av_version_info()))"
@@ -98,10 +98,7 @@ class AboutWindowController: NSWindowController {
       break
     }
 
-    if let contributionFile = Bundle.main.path(forResource: "Contribution", ofType: "rtf") {
-      detailTextView.readRTFD(fromFile: contributionFile)
-      detailTextView.textColor = NSColor.secondaryLabelColor
-    }
+    configureAboutOverview()
 
     if let creditsFile = Bundle.main.path(forResource: "Credits", ofType: "rtf") {
       creditsTextView.readRTFD(fromFile: creditsFile)
@@ -126,36 +123,81 @@ class AboutWindowController: NSWindowController {
     contributorsCollectionView.enclosingScrollView?.contentInsets.bottom = contributorsFooterView.frame.height * loc[colors.firstIndex(of: 0)! - 1]
   }
 
-  private func addLocalizedBrandSubtitle(_ subtitle: String?) {
-    guard let subtitle,
-          let container = iinaLabel.superview,
-          versionLabel.superview === container,
-          let versionTopConstraint = container.constraints.first(where: {
-            $0.firstItem === versionLabel &&
-              $0.secondItem === iinaLabel &&
-              $0.firstAttribute == .top &&
-              $0.secondAttribute == .bottom
-          }) else { return }
+  private func applyLocalizedBrandName(_ subtitle: String?) {
+    guard let subtitle else { return }
+    iinaLabel.stringValue = "Rawya \u{00B7} \(subtitle)"
+  }
 
-    versionTopConstraint.isActive = false
+  private func configureAboutOverview() {
+    let result = NSMutableAttributedString()
+    let centered = NSMutableParagraphStyle()
+    centered.alignment = .center
+    centered.paragraphSpacing = 4
 
-    let subtitleLabel = NSTextField(labelWithString: subtitle)
-    subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
-    subtitleLabel.alignment = .center
-    subtitleLabel.font = NSFont.systemFont(ofSize: 13, weight: .medium)
-    subtitleLabel.textColor = .secondaryLabelColor
-    container.addSubview(subtitleLabel)
+    let body = NSMutableParagraphStyle()
+    body.paragraphSpacing = 10
 
-    NSLayoutConstraint.activate([
-      subtitleLabel.topAnchor.constraint(equalTo: iinaLabel.bottomAnchor, constant: 1),
-      subtitleLabel.centerXAnchor.constraint(equalTo: iinaLabel.centerXAnchor),
-      versionLabel.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: 4),
-    ])
+    func append(_ text: String,
+                font: NSFont = .systemFont(ofSize: 13),
+                color: NSColor = .secondaryLabelColor,
+                paragraphStyle: NSParagraphStyle = body,
+                link: URL? = nil) {
+      var attributes: [NSAttributedString.Key: Any] = [
+        .font: font,
+        .foregroundColor: color,
+        .paragraphStyle: paragraphStyle
+      ]
+      if let link {
+        attributes[.link] = link
+      }
+      result.append(NSAttributedString(string: text, attributes: attributes))
+    }
+
+    append("Rawya\n",
+           font: .systemFont(ofSize: 18, weight: .semibold),
+           color: .labelColor,
+           paragraphStyle: centered)
+    append(localizedAboutText("about.overview.tagline",
+                              fallback: "AI-powered video player for macOS.") + "\n\n",
+           paragraphStyle: centered)
+
+    append(localizedAboutText("about.overview.website", fallback: "Website") + ": ",
+           font: .systemFont(ofSize: 13, weight: .semibold),
+           color: .labelColor,
+           paragraphStyle: centered)
+    append(AppData.websiteLink + "\n",
+           color: .linkColor,
+           paragraphStyle: centered,
+           link: URL(string: AppData.websiteLink))
+    append(localizedAboutText("about.overview.source_code", fallback: "Source Code") + ": ",
+           font: .systemFont(ofSize: 13, weight: .semibold),
+           color: .labelColor,
+           paragraphStyle: centered)
+    append(AppData.githubLink + "\n\n",
+           color: .linkColor,
+           paragraphStyle: centered,
+           link: URL(string: AppData.githubLink))
+
+    append(localizedAboutText(
+      "about.overview.license",
+      fallback: "Rawya is free and open-source software, released under GNU GPLv3."
+    ))
+
+    detailTextView.textStorage?.setAttributedString(result)
+    detailTextView.linkTextAttributes = [
+      .foregroundColor: NSColor.linkColor,
+      .underlineStyle: NSUnderlineStyle.single.rawValue
+    ]
+    detailTextView.textContainerInset = NSSize(width: 0, height: 4)
+  }
+
+  private func localizedAboutText(_ key: String, fallback: String) -> String {
+    NSLocalizedString(key, tableName: nil, bundle: .main, value: fallback, comment: "Rawya About window")
   }
 
   @objc func openCommitLink() {
     guard let commitSHA = InfoDictionary.shared.buildCommit else { return }
-    NSWorkspace.shared.open(.init(string: "https://github.com/iina/iina/commit/\(commitSHA)")!)
+    NSWorkspace.shared.open(.init(string: "\(AppData.githubLink)/commit/\(commitSHA)")!)
   }
 
   @IBAction func sectionBtnAction(_ sender: NSButton) {
@@ -191,7 +233,7 @@ extension AboutWindowController: NSCollectionViewDataSource {
   private func getContributors() -> [Contributor] {
     // This method will be called only once when `self.contributors` is needed,
     // i.e. when `contributorsCollectionView` is being initialized.
-    loadContributors(from: "https://api.github.com/repos/iina/iina/contributors")
+    loadContributors(from: "https://api.github.com/repos/rawya-ai-player/client-macos/contributors")
     return []
   }
 

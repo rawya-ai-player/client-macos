@@ -243,7 +243,7 @@ class PrefKeyBindingViewController: PreferenceViewController, PreferenceWindowEm
   }
 
   @IBAction func openKeyBindingsHelpAction(_ sender: AnyObject) {
-    NSWorkspace.shared.open(URL(string: AppData.wikiLink.appending("/Manage-Key-Bindings"))!)
+    NSWorkspace.shared.open(URL(string: AppData.upstreamDocumentationLink.appending("/Manage-Key-Bindings"))!)
   }
 
   // MARK: - UI

@@ -10,6 +10,148 @@ import Foundation
 import Speech
 import Translation
 
+@available(macOS 26.0, *)
+struct AppleSpeechTimedTextSegmenter {
+  var compactLanguagePauseDuration: Double = 0.3
+  var otherLanguagePauseDuration: Double = 0.45
+
+  func segments(from text: AttributedString,
+                chunkOffset: Double,
+                language: AISubtitleLanguage) -> [AISubtitleSegment] {
+    var result: [AISubtitleSegment] = []
+    var currentText = ""
+    var currentStart: Double?
+    var currentEnd: Double?
+    var confidenceTotal = 0.0
+    var confidenceCount = 0
+    let primaryLanguage = language.code.replacingOccurrences(of: "_", with: "-")
+      .lowercased()
+      .split(separator: "-")
+      .first
+      .map(String.init)
+    // Chinese and Japanese do not depend on spaces between words and benefit from
+    // a slightly tighter pause boundary. Korean behaves more like spaced scripts
+    // here; the tighter value over-segments quick dialogue.
+    let minimumPauseDuration = primaryLanguage.map { ["zh", "ja"].contains($0) } == true
+      ? compactLanguagePauseDuration
+      : otherLanguagePauseDuration
+
+    func normalized(_ value: String) -> String {
+      value.components(separatedBy: .whitespacesAndNewlines)
+        .filter { !$0.isEmpty }
+        .joined(separator: " ")
+    }
+
+    func appendCurrent() {
+      let value = normalized(currentText)
+      guard !value.isEmpty, let start = currentStart, let end = currentEnd, end > start else { return }
+      result.append(AISubtitleSegment(
+        timeRange: AISubtitleTimeRange(start: chunkOffset + start, end: chunkOffset + end),
+        text: value,
+        language: language,
+        confidence: confidenceCount > 0 ? confidenceTotal / Double(confidenceCount) : nil))
+    }
+
+    for run in text.runs {
+      let value = String(text[run.range].characters)
+      guard let timeRange = run.audioTimeRange else {
+        currentText += value
+        continue
+      }
+      let start = timeRange.start.seconds
+      let end = timeRange.end.seconds
+      if let previousEnd = currentEnd,
+         start - previousEnd >= minimumPauseDuration {
+        appendCurrent()
+        currentText = ""
+        currentStart = nil
+        currentEnd = nil
+        confidenceTotal = 0
+        confidenceCount = 0
+      }
+      currentText += value
+      currentStart = currentStart.map { min($0, start) } ?? start
+      currentEnd = currentEnd.map { max($0, end) } ?? end
+      if let confidence = run.transcriptionConfidence {
+        confidenceTotal += confidence
+        confidenceCount += 1
+      }
+    }
+    appendCurrent()
+    return result
+  }
+}
+
+@available(macOS 26.0, *)
+private actor AppleSpeechAssetReservationCoordinator {
+  static let shared = AppleSpeechAssetReservationCoordinator()
+
+  func reserve(_ locale: Locale) async throws {
+    do {
+      // Let AssetInventory decide whether one of its locale variants already
+      // satisfies this request. A language-only comparison is too broad for
+      // reservations such as en-US and en-GB.
+      try await AssetInventory.reserve(locale: locale)
+      return
+    } catch {
+      let reservedLocales = await AssetInventory.reservedLocales
+      guard reservedLocales.count >= AssetInventory.maximumReservedLocales,
+            await releaseOneReservation(from: reservedLocales,
+                                        requestedLocale: locale,
+                                        preferRequestedLanguage: false) else {
+        throw reservationError()
+      }
+    }
+
+    do {
+      try await AssetInventory.reserve(locale: locale)
+    } catch {
+      throw reservationError()
+    }
+  }
+
+  func repairReservation(_ locale: Locale) async throws {
+    let reservedLocales = await AssetInventory.reservedLocales
+    guard await releaseOneReservation(from: reservedLocales,
+                                      requestedLocale: locale,
+                                      preferRequestedLanguage: true) else {
+      throw reservationError()
+    }
+    do {
+      try await AssetInventory.reserve(locale: locale)
+    } catch {
+      throw reservationError()
+    }
+  }
+
+  private func releaseOneReservation(from reservedLocales: [Locale],
+                                     requestedLocale: Locale,
+                                     preferRequestedLanguage: Bool) async -> Bool {
+    let candidates = AISubtitleLocaleReservationPolicy.releaseOrder(
+      reservedLocales: reservedLocales.map { AISubtitleLanguage($0.identifier) },
+      requestedLocale: AISubtitleLanguage(requestedLocale.identifier),
+      preferRequestedLanguage: preferRequestedLanguage
+    )
+    for candidate in candidates {
+      guard let locale = reservedLocales.first(where: { $0.identifier == candidate.code }) else { continue }
+      if await AssetInventory.release(reservedLocale: locale) {
+        return true
+      }
+    }
+    return false
+  }
+
+  private func reservationError() -> AISubtitleError {
+    AISubtitleError(
+      code: "apple_speech_locale_limit",
+      message: aiSubtitleLocalized(
+        "ai_subtitle.apple_locale_limit_error",
+        fallback: "Speech resource slots are full, and Rawya couldn't release an older language. Try again later."
+      )
+    )
+  }
+}
+
 final class AppleAISubtitleTranscriber: AISubtitleTranscriber, AISubtitleCancelableProvider {
   let providerID = AISubtitleProviderID.apple
   let modelIdentifier = AISubtitleProviderModelCatalog.identifier(for: .apple, role: .transcriber)!
@@ -71,29 +213,65 @@ final class AppleAISubtitleTranscriber: AISubtitleTranscriber, AISubtitleCancela
   func probe(language: AISubtitleLanguage) async -> AISubtitleProviderCapability {
     guard SpeechTranscriber.isAvailable else {
       return capability(status: .unavailable,
-                        reason: "Apple SpeechTranscriber is not available on this Mac.")
+                        reason: aiSubtitleLocalized(
+                          "ai_subtitle.apple_speech_unavailable",
+                          fallback: "Apple speech recognition is unavailable on this Mac."
+                        ))
     }
     let requestedLocale = Locale(identifier: language.code)
     guard let supportedLocale = await SpeechTranscriber.supportedLocale(equivalentTo: requestedLocale) else {
       return capability(status: .unavailable,
-                        reason: "Apple SpeechTranscriber does not support \(language.code).")
+                        reason: String(
+                          format: aiSubtitleLocalized(
+                            "ai_subtitle.apple_speech_language_unsupported",
+                            fallback: "Apple speech recognition does not support %@."
+                          ),
+                          localizedLanguageName(language.code)
+                        ))
     }
+    let languageName = localizedLanguageName(supportedLocale.identifier)
     let transcriber = SpeechTranscriber(locale: supportedLocale,
                                         preset: .timeIndexedTranscriptionWithAlternatives)
     switch await AssetInventory.status(forModules: [transcriber]) {
     case .installed:
       return capability(status: .available,
-                        reason: "The Apple speech model for \(supportedLocale.identifier) is installed.")
+                        reason: String(
+                          format: aiSubtitleLocalized(
+                            "ai_subtitle.apple_speech_model_installed",
+                            fallback: "%@ speech recognition is ready."
+                          ),
+                          languageName
+                        ))
     case .supported, .downloading:
       return capability(status: .needsDownload,
-                        reason: "The Apple speech model for \(supportedLocale.identifier) must finish downloading.")
+                        reason: String(
+                          format: aiSubtitleLocalized(
+                            "ai_subtitle.apple_speech_model_downloading",
+                            fallback: "%@ speech resources are still downloading. Try again when the download finishes."
+                          ),
+                          languageName
+                        ))
     case .unsupported:
       return capability(status: .unavailable,
-                        reason: "The Apple speech model for \(supportedLocale.identifier) is unsupported on this Mac.")
+                        reason: String(
+                          format: aiSubtitleLocalized(
+                            "ai_subtitle.apple_speech_model_unsupported",
+                            fallback: "%@ speech recognition is unavailable on this Mac."
+                          ),
+                          languageName
+                        ))
     @unknown default:
       return capability(status: .unavailable,
-                        reason: "The Apple speech model returned an unknown availability state.")
+                        reason: aiSubtitleLocalized(
+                          "ai_subtitle.apple_speech_model_unknown",
+                          fallback: "Rawya couldn't check the Apple speech resources. Try again later."
+                        ))
     }
+  }
+
+  private func localizedLanguageName(_ code: String) -> String {
+    let interfaceLanguage = Bundle.main.preferredLocalizations.first ?? Locale.current.identifier
+    return Locale(identifier: interfaceLanguage).localizedString(forIdentifier: code) ?? code
   }
 
   @available(macOS 26.0, *)
@@ -110,17 +288,43 @@ final class AppleAISubtitleTranscriber: AISubtitleTranscriber, AISubtitleCancela
         }
         let transcriber = SpeechTranscriber(locale: supportedLocale,
                                             preset: .timeIndexedTranscriptionWithAlternatives)
-        if let installation = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
-          progressHandler(installation.progress)
-          try await installation.downloadAndInstall()
+        try await AppleSpeechAssetReservationCoordinator.shared.reserve(supportedLocale)
+        do {
+          try await downloadAssets(for: transcriber, progressHandler: progressHandler)
+        } catch {
+          guard isAppleSpeechLocaleAllocationError(error) else { throw error }
+          // A stale locale variant can make AssetInventory believe the language
+          // is reserved while the configured module still cannot allocate it.
+          // Rebuild that reservation once before surfacing an error.
+          try await AppleSpeechAssetReservationCoordinator.shared.repairReservation(supportedLocale)
+          try await downloadAssets(for: transcriber, progressHandler: progressHandler)
         }
         completion(.success(()))
       } catch let error as AISubtitleError {
         completion(.failure(error))
       } catch {
+        if isAppleSpeechLocaleAllocationError(error) {
+          completion(.failure(AISubtitleError(
+            code: "apple_speech_locale_limit",
+            message: aiSubtitleLocalized(
+              "ai_subtitle.apple_locale_limit_error",
+              fallback: "Speech resource slots are full, and Rawya couldn't release an older language. Try again later."
+            )
+          )))
+          return
+        }
         completion(.failure(AISubtitleError(code: "apple_speech_asset_installation_failed",
                                             message: error.localizedDescription)))
       }
+    }
+  }
+
+  @available(macOS 26.0, *)
+  private func downloadAssets(for transcriber: SpeechTranscriber,
+                              progressHandler: @escaping (Progress) -> Void) async throws {
+    if let installation = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
+      progressHandler(installation.progress)
+      try await installation.downloadAndInstall()
     }
   }
 
@@ -158,10 +362,18 @@ final class AppleAISubtitleTranscriber: AISubtitleTranscriber, AISubtitleCancela
                               chunkOffset: Double,
                               language: AISubtitleLanguage) async throws -> [AISubtitleSegment] {
     var segments: [AISubtitleSegment] = []
+    let timedTextSegmenter = AppleSpeechTimedTextSegmenter()
     for try await result in transcriber.results where result.isFinal {
       let text = String(result.text.characters)
         .trimmingCharacters(in: .whitespacesAndNewlines)
       guard !text.isEmpty else { continue }
+      let timedSegments = timedTextSegmenter.segments(from: result.text,
+                                                      chunkOffset: chunkOffset,
+                                                      language: language)
+      if !timedSegments.isEmpty {
+        segments.append(contentsOf: timedSegments)
+        continue
+      }
       let start = chunkOffset + result.range.start.seconds
       let end = start + result.range.duration.seconds
       segments.append(AISubtitleSegment(timeRange: AISubtitleTimeRange(start: start, end: end),
@@ -179,6 +391,110 @@ final class AppleAISubtitleTranscriber: AISubtitleTranscriber, AISubtitleCancela
                                  reason: reason,
                                  supportsCloudProcessing: false,
                                  modelIdentifier: modelIdentifier)
+  }
+}
+
+private func isAppleSpeechLocaleAllocationError(_ error: Error) -> Bool {
+  let message = error.localizedDescription.lowercased()
+  return message.contains("allocated locales")
+    || (message.contains("locale") && message.contains("maximum"))
+}
+
+struct AppleTranslationContextCodec {
+  var maximumSegmentCount = 3
+  var maximumGap: Double = 1
+  var maximumDuration: Double = 15
+  var maximumCharacterCount = 180
+
+  func groups(_ segments: [AISubtitleSegment]) -> [[AISubtitleSegment]] {
+    var result: [[AISubtitleSegment]] = []
+    for segment in segments {
+      guard var current = result.popLast(), let first = current.first, let last = current.last else {
+        result.append([segment])
+        continue
+      }
+      let gap = segment.timeRange.start - last.timeRange.end
+      let duration = max(last.timeRange.end, segment.timeRange.end) - first.timeRange.start
+      let characterCount = (current.map(\.text) + [segment.text]).reduce(0) { partial, text in
+        partial + text.unicodeScalars.filter {
+          !CharacterSet.whitespacesAndNewlines.contains($0)
+        }.count
+      }
+      if current.count < maximumSegmentCount,
+         gap >= -0.05,
+         gap <= maximumGap,
+         duration <= maximumDuration,
+         characterCount <= maximumCharacterCount {
+        current.append(segment)
+        result.append(current)
+      } else {
+        result.append(current)
+        result.append([segment])
+      }
+    }
+    return result
+  }
+
+  func encodedSource(_ segments: [AISubtitleSegment]) -> String {
+    guard segments.count > 1 else { return segments.first?.text ?? "" }
+    return segments.enumerated().map { index, segment in
+      "\(marker(index)) \(segment.text)"
+    }.joined(separator: "\n")
+  }
+
+  func decodedTranslations(_ text: String, count: Int) -> [String]? {
+    guard count > 1 else {
+      let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+      return value.isEmpty ? nil : [value]
+    }
+    let markers = (0..<count).map(marker)
+    let ranges = markers.compactMap { text.range(of: $0) }
+    guard ranges.count == count,
+          zip(ranges, ranges.dropFirst()).allSatisfy({ $0.lowerBound < $1.lowerBound }) else {
+      return nil
+    }
+    var result: [String] = []
+    for index in ranges.indices {
+      let start = ranges[index].upperBound
+      let end = index + 1 < ranges.count ? ranges[index + 1].lowerBound : text.endIndex
+      let value = String(text[start..<end]).trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !value.isEmpty else { return nil }
+      result.append(value)
+    }
+    return result
+  }
+
+  func hasSafeBoundaries(_ translations: [String],
+                         targetLanguage: AISubtitleLanguage) -> Bool {
+    let primaryCode = targetLanguage.code.replacingOccurrences(of: "_", with: "-")
+      .lowercased()
+      .split(separator: "-")
+      .first
+      .map(String.init)
+    return translations.dropFirst().allSatisfy { translation in
+      let value = translation.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !value.isEmpty else { return false }
+      if let first = value.first,
+         [".", ",", ";", ":", "!", "?", "。", "，", "、", "！", "？"].contains(first) {
+        return false
+      }
+      switch primaryCode {
+      case "en":
+        guard let firstLetter = value.first(where: { $0.isLetter }) else { return true }
+        return !firstLetter.isLowercase
+      case "ja":
+        return !["は", "が", "を"].contains { value.hasPrefix($0) }
+      case "ko":
+        let firstWord = value.split(whereSeparator: { $0.isWhitespace }).first.map(String.init) ?? value
+        return !["은", "는", "이", "가", "을", "를", "와", "과"].contains(firstWord)
+      default:
+        return true
+      }
+    }
+  }
+
+  private func marker(_ index: Int) -> String {
+    String(format: "9917%04d", index + 1)
   }
 }
 
@@ -289,10 +605,14 @@ final class AppleAISubtitleTranslator: AISubtitleTranslator, AISubtitleCancelabl
 
     let session = TranslationSession(installedSource: source, target: target)
     try await session.prepareTranslation()
-    let requests = segments.map {
-      TranslationSession.Request(sourceText: $0.text, clientIdentifier: $0.id)
+    let contextCodec = AppleTranslationContextCodec()
+    let groups = contextCodec.groups(segments)
+    let requests = groups.enumerated().map { index, group in
+      TranslationSession.Request(sourceText: contextCodec.encodedSource(group),
+                                 clientIdentifier: "rawya-context-\(index)")
     }
     let responses = try await session.translations(from: requests)
+    let textNormalizer = AISubtitleTargetTextNormalizer()
     var responseByID: [String: TranslationSession.Response] = [:]
     for response in responses {
       guard let identifier = response.clientIdentifier else {
@@ -305,14 +625,46 @@ final class AppleAISubtitleTranslator: AISubtitleTranslator, AISubtitleCancelabl
       }
       responseByID[identifier] = response
     }
+    var translatedTextBySegmentID: [String: String] = [:]
+    var fallbackSegments: [AISubtitleSegment] = []
+    for (index, group) in groups.enumerated() {
+      let identifier = "rawya-context-\(index)"
+      guard let response = responseByID[identifier] else {
+        throw AISubtitleError(code: "apple_translation_response_missing",
+                              message: "Apple Translation did not return context group \(index).")
+      }
+      if let translations = contextCodec.decodedTranslations(response.targetText, count: group.count),
+         contextCodec.hasSafeBoundaries(translations, targetLanguage: targetLanguage) {
+        for (segment, text) in zip(group, translations) {
+          translatedTextBySegmentID[segment.id] = text
+        }
+      } else {
+        fallbackSegments.append(contentsOf: group)
+      }
+    }
+
+    if !fallbackSegments.isEmpty {
+      let fallbackRequests = fallbackSegments.map {
+        TranslationSession.Request(sourceText: $0.text, clientIdentifier: $0.id)
+      }
+      let fallbackResponses = try await session.translations(from: fallbackRequests)
+      for response in fallbackResponses {
+        guard let identifier = response.clientIdentifier else {
+          throw AISubtitleError(code: "apple_translation_response_id_missing",
+                                message: "Apple Translation returned a fallback response without its cue identifier.")
+        }
+        translatedTextBySegmentID[identifier] = response.targetText
+      }
+    }
+
     return try segments.map { segment in
-      guard let response = responseByID[segment.id] else {
+      guard let translatedText = translatedTextBySegmentID[segment.id] else {
         throw AISubtitleError(code: "apple_translation_response_missing",
                               message: "Apple Translation did not return cue \(segment.id).")
       }
       return AISubtitleCue(id: segment.id,
                           timeRange: segment.timeRange,
-                          text: response.targetText,
+                          text: textNormalizer.normalize(translatedText, language: targetLanguage),
                           originalText: segment.text,
                           language: targetLanguage)
     }
@@ -320,10 +672,11 @@ final class AppleAISubtitleTranslator: AISubtitleTranslator, AISubtitleCancelabl
 
   private func identityCues(_ segments: [AISubtitleSegment],
                             language: AISubtitleLanguage) -> [AISubtitleCue] {
-    segments.map {
+    let textNormalizer = AISubtitleTargetTextNormalizer()
+    return segments.map {
       AISubtitleCue(id: $0.id,
                     timeRange: $0.timeRange,
-                    text: $0.text,
+                    text: textNormalizer.normalize($0.text, language: language),
                     originalText: nil,
                     language: language)
     }

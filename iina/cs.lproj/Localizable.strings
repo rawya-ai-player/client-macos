@@ -16,6 +16,11 @@
 "general.username" = "Uživatel";
 "general.password" = "Heslo";
 "general.na" = "N/A";
+"brand.localized_name" = "";
+"about.overview.tagline" = "Videopřehrávač pro macOS s podporou umělé inteligence.";
+"about.overview.website" = "Web";
+"about.overview.source_code" = "Zdrojový kód";
+"about.overview.license" = "Rawya je svobodný software s otevřeným zdrojovým kódem vydaný pod licencí GNU GPLv3.";
 
 "input.value_is_empty" = "Název nemůže být prázdný.";
 "input.already_exists" = "Název již existuje.";
@@ -30,7 +35,7 @@
 "initial.beta.desc" = "Pokud se chcete vrátit k vydané verzi, zrušte výběr „Dostávat beta aktualizace“ v Nastavení > Obecné, a nainstalujte stabilní verzi z naší <a href=\"https://rawya.app\">oficiální webové stránky</a>.";
 "initial.nightly.desc" = "Noční sestavení nejsou doporučena pro každodenní použití. V současné době nepodporují automatické aktualizace. Stáhněte si prosím ručně novější sestavení z naší <a href=\"https://rawya.app\">noční webové stránky</a>.";
 "initial.debug.desc" = "Ladící sestavení obvykle nejsou optimalizována pro výkon, nejsou tedy doporučena pro každodenní použití. Ladící sestavení nepodporují automatické aktualizace.";
-"initial.bug_report" = "Nahlaste na <a href=\"https://github.com/iina/iina/issues\">GitHub</a>.";
+"initial.bug_report" = "Nahlaste na <a href=\"https://github.com/rawya-ai-player/client-macos/issues\">GitHub</a>.";
 
 // Inspector Window
 "inspector.error" = "Chyba";
