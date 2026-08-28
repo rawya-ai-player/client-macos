@@ -7,7 +7,7 @@ fixture_dir="$(mktemp -d "${TMPDIR:-/tmp}/rawya-release-test.XXXXXX")"
 trap 'rm -rf "$fixture_dir"' EXIT
 
 bash -n "${repo_root}/scripts/download_pinned_build_dependencies.sh"
-manifest="${repo_root}/Configs/IINAv1.4.4BuildLibraries.txt"
+manifest="${repo_root}/Configs/IINA-v1.4.4-build-libraries.txt"
 manifest_entries="$(wc -l < "$manifest" | tr -d ' ')"
 unique_manifest_entries="$(sort -u "$manifest" | wc -l | tr -d ' ')"
 if [[ "$unique_manifest_entries" != "$manifest_entries" ]]; then
