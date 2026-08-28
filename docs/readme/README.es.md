@@ -33,7 +33,7 @@ Descarga el DMG más reciente desde [GitHub Releases](https://github.com/rawya-a
 
 Rawya busca automáticamente actualizaciones estables una vez al día. También puedes seleccionar **Buscar actualizaciones…** en el menú de la aplicación en cualquier momento. Activa **Descargar e instalar actualizaciones automáticamente** en **Ajustes > General** para descargar en segundo plano las actualizaciones verificadas e instalarlas al cerrar Rawya.
 
-Las actualizaciones automáticas y las descargas manuales utilizan la misma versión estable de GitHub Release. Cada versión estable incluye también su archivo de código fuente y los archivos de suma de comprobación SHA-256.
+Las actualizaciones automáticas y las descargas manuales utilizan la misma versión estable de GitHub Release. GitHub también proporciona los archivos de código fuente de cada versión estable.
 
 ## Compilar localmente
 

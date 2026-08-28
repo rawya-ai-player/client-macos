@@ -33,7 +33,7 @@ Baixe o DMG mais recente em [GitHub Releases](https://github.com/rawya-ai-player
 
 O Rawya verifica automaticamente as atualizações estáveis uma vez por dia. Você também pode escolher **Verificar atualizações…** no menu do aplicativo a qualquer momento. Ative **Baixar e instalar atualizações automaticamente** em **Ajustes > Geral** para baixar atualizações verificadas em segundo plano e instalá-las ao encerrar o Rawya.
 
-As atualizações automáticas e os downloads manuais usam a mesma versão estável do GitHub Release. Cada versão estável também inclui seu arquivo de código-fonte e arquivos de soma de verificação SHA-256.
+As atualizações automáticas e os downloads manuais usam a mesma versão estável do GitHub Release. O GitHub também fornece os arquivos de código-fonte de cada versão estável.
 
 ## Compilar localmente
 

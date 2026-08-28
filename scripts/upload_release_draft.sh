@@ -68,11 +68,11 @@ gh release create "$tag" \
   --verify-tag \
   --title "Rawya ${version} (${build_number})" \
   --notes-file "${release_dir}/release-notes.md" \
-  "${release_dir}/${zip_name}#Sparkle automatic update" \
-  "${release_dir}/${dmg_name}#Manual macOS installer" \
+  "${release_dir}/${zip_name}#Automatic update package - no manual download" \
+  "${release_dir}/${dmg_name}#macOS installer - download this" \
   "${release_dir}/${source_name}#Corresponding source" \
   "${release_dir}/release-notes.md#Release notes" \
-  "${release_dir}/appcast.xml#Sparkle update feed" \
+  "${release_dir}/appcast.xml#Automatic update metadata - no manual download" \
   "${release_dir}/SHA256SUMS#SHA-256 checksums" \
   "${release_dir}/release-info.txt#Release manifest"
 

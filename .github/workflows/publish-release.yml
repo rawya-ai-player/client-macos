@@ -82,6 +82,33 @@ jobs:
           RAWYA_EXPECTED_SPARKLE_PUBLIC_KEY="$public_key" \
             ./scripts/verify_sparkle_signatures.sh "$RUNNER_TEMP/rawya-release"
 
+      - name: Remove draft-only validation assets
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          release_dir="$RUNNER_TEMP/rawya-release"
+          read_manifest() {
+            awk -F= -v key="$1" '$1 == key { sub(/^[^=]*=/, ""); print; exit }' \
+              "$release_dir/release-info.txt"
+          }
+
+          source_name="$(read_manifest source)"
+          zip_name="$(read_manifest zip)"
+          dmg_name="$(read_manifest dmg)"
+          appcast_name="$(read_manifest appcast)"
+
+          for asset in "$source_name" release-notes.md SHA256SUMS release-info.txt; do
+            gh release delete-asset "$RELEASE_TAG" "$asset" --yes
+          done
+
+          actual_assets="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | LC_ALL=C sort)"
+          expected_assets="$(printf '%s\n' "$appcast_name" "$dmg_name" "$zip_name" | LC_ALL=C sort)"
+          if [[ "$actual_assets" != "$expected_assets" ]]; then
+            echo "Unexpected public release asset set:" >&2
+            printf '%s\n' "$actual_assets" >&2
+            exit 1
+          fi
+
       - name: Publish approved release
         env:
           RELEASE_TAG: ${{ inputs.tag }}
