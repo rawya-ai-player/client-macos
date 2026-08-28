@@ -20,10 +20,8 @@ jobs:
       - name: Test release tooling
         run: ./Tests/ReleaseWorkflow/test_release_scripts.sh
 
-      - name: Install dependencies
-        run: ./other/download_libs.sh $DOWNLOAD_LIBS_ARGS
-        env:
-          DOWNLOAD_LIBS_ARGS: ${{ github.event_name == 'pull_request' && '--skip-plugins' || '' }}
+      - name: Install pinned build dependencies
+        run: ./scripts/download_pinned_build_dependencies.sh
 
       - name: Build
         run: xcodebuild -project iina.xcodeproj ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO -scheme iina -configuration Release -derivedDataPath "$RUNNER_TEMP/rawya-derived" ${{ matrix.deployment_target }}
