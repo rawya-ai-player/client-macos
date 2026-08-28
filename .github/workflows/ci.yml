@@ -17,6 +17,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Test release tooling
+        run: ./Tests/ReleaseWorkflow/test_release_scripts.sh
+
       - name: Install dependencies
         run: ./other/download_libs.sh $DOWNLOAD_LIBS_ARGS
         env:

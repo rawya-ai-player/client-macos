@@ -61,7 +61,6 @@ struct AppData {
   // Keep Rawya on its own stable release channel so it can never update from IINA or a
   // development branch. The release process should attach appcast.xml to the latest release.
   static let appcastLink = "https://github.com/rawya-ai-player/client-macos/releases/latest/download/appcast.xml"
-  static let appcastBetaLink = appcastLink
   static let assrtRegisterLink = "https://secure.assrt.net/user/register.xml?redir=http%3A%2F%2Fassrt.net%2Fusercp.php"
   static let toneMappingHelpLink = "https://en.wikipedia.org/wiki/Tone_mapping"
   static let targetPeakHelpLink = "https://mpv.io/manual/stable/#options-target-peak"

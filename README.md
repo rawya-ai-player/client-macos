@@ -7,16 +7,14 @@
 <p align="center">简洁、现代的 macOS 本地音视频播放器</p>
 
 <p align="center">
-  <a href="https://rawya.app">官网（建设中）</a> ·
-  <a href="https://github.com/rawya-ai-player/client-macos/releases">下载</a> ·
+  <a href="https://rawya.app">官网</a> ·
+  <a href="https://github.com/rawya-ai-player/client-macos/releases/latest">下载最新版</a> ·
   <a href="https://github.com/rawya-ai-player/client-macos/issues">问题反馈</a>
 </p>
 
 ## 简介
 
 Rawya 专注于 macOS 本地媒体播放体验，提供清晰易用的操作界面，同时保留面向进阶用户的播放与显示设置。
-
-官网域名为 [rawya.app](https://rawya.app)，网站目前正在建设中。
 
 ## 主要功能
 
@@ -35,9 +33,15 @@ Rawya 专注于 macOS 本地媒体播放体验，提供清晰易用的操作界�
 
 ## 下载
 
-正式发布版本请前往 [Releases](https://github.com/rawya-ai-player/client-macos/releases) 页面下载。
+从 [GitHub Releases](https://github.com/rawya-ai-player/client-macos/releases/latest) 下载最新版 DMG，打开后将 Rawya 拖入“应用程序”文件夹。正式版本使用 Developer ID 签名并经过 Apple 公证。
 
 开发构建仅用于本地测试，不建议直接作为正式分发版本。
+
+## 更新
+
+Rawya 默认每天自动检查一次稳定版更新，也可以随时通过菜单中的“检查更新…”手动检查。在“设置 > 通用”中启用“自动下载并安装更新”后，经过签名验证的新版本会在后台下载，并在退出 Rawya 时安装。
+
+自动更新与手动下载安装使用相同的稳定版 Release。每个正式版本同时提供对应源码和 SHA-256 校验文件。
 
 ## 本地构建
 

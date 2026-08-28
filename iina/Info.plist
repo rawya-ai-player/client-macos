@@ -642,10 +642,20 @@
 	</array>
 	<key>SUFeedURL</key>
 	<string>https://github.com/rawya-ai-player/client-macos/releases/latest/download/appcast.xml</string>
-	<key>SUPublicDSAKeyFile</key>
-	<string>dsa_pub.pem</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
+	<key>SUAllowsAutomaticUpdates</key>
+	<true/>
+	<key>SUAutomaticallyUpdate</key>
+	<false/>
+	<key>SURequireSignedFeed</key>
+	<true/>
+	<key>SUVerifyUpdateBeforeExtraction</key>
+	<true/>
 	<key>SUPublicEDKey</key>
-	<string>UpwCRYfYOg0OGgQHY6RUdrV29yPcdkvxGlEfq46r6a0=</string>
+	<string>8GHyCmC+ckblbm8k1tQH9lubDKcfQVzf5ZVmkBBLeMg=</string>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>

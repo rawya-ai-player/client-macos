@@ -1,0 +1,96 @@
+name: Publish macOS release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Annotated stable tag, for example rawya-v1.0.0
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-macos-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Validate and publish draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: macos-release
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_DIR: ${{ runner.temp }}/rawya-release
+    steps:
+      - name: Validate tag input
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^rawya-v[0-9]+\.[0-9]+\.[0-9]+(-build[1-9][0-9]*)?$ ]]; then
+            echo "Only stable version or version-build tags can be published." >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+
+      - name: Verify annotated tag and draft state
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          if [[ "$(git cat-file -t "refs/tags/$RELEASE_TAG")" != "tag" ]]; then
+            echo "Release tag must be annotated: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          release_json="$(gh release view "$RELEASE_TAG" --json isDraft,isPrerelease,tagName)"
+          if [[ "$(jq -r .isDraft <<< "$release_json")" != "true" ||
+                "$(jq -r .isPrerelease <<< "$release_json")" != "false" ||
+                "$(jq -r .tagName <<< "$release_json")" != "$RELEASE_TAG" ]]; then
+            echo "Expected an unpublished stable draft for $RELEASE_TAG." >&2
+            exit 1
+          fi
+
+      - name: Download and validate release assets
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          mkdir -p "$RELEASE_DIR"
+          gh release download "$RELEASE_TAG" --dir "$RELEASE_DIR"
+          ./scripts/validate_update_release.sh "$RELEASE_DIR"
+          manifest_revision="$(awk -F= '$1 == "revision" { print $2 }' "$RELEASE_DIR/release-info.txt")"
+          if [[ "$manifest_revision" != "$(git rev-parse HEAD)" ]]; then
+            echo "Release manifest revision does not match the annotated tag." >&2
+            exit 1
+          fi
+
+      - name: Verify Sparkle signatures independently
+        run: |
+          public_key="$(xmllint --xpath \
+            "string(//key[text()='SUPublicEDKey']/following-sibling::string[1])" \
+            iina/Info.plist)"
+          RAWYA_EXPECTED_SPARKLE_PUBLIC_KEY="$public_key" \
+            ./scripts/verify_sparkle_signatures.sh "$RELEASE_DIR"
+
+      - name: Publish approved release
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: gh release edit "$RELEASE_TAG" --draft=false --latest
+
+      - name: Verify public update feed
+        run: |
+          feed_url="https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/appcast.xml"
+          for attempt in {1..12}; do
+            if curl --fail --location --silent --show-error \
+                --output "$RUNNER_TEMP/public-appcast.xml" "$feed_url"; then
+              cmp "$RELEASE_DIR/appcast.xml" "$RUNNER_TEMP/public-appcast.xml"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Published release did not become available through the stable feed." >&2
+          exit 1
