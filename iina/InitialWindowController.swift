@@ -75,7 +75,6 @@ class InitialWindowController: NSWindowController {
 
   private let observedPrefKeys: [Preference.Key] = [.themeMaterial]
   private var currentlyHoveredRow: GrayHighlightRowView?
-  private var didAttemptAISubtitleOnboarding = false
 
   override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey : Any]?, context: UnsafeMutableRawPointer?) {
     guard let keyPath = keyPath, let change = change else { return }
@@ -124,11 +123,6 @@ class InitialWindowController: NSWindowController {
     window?.isMovableByWindowBackground = true
 
     window?.contentView?.registerForDraggedTypes([.nsFilenames, .nsURL, .string])
-    NotificationCenter.default.addObserver(self,
-                                           selector: #selector(initialWindowDidBecomeKey(_:)),
-                                           name: NSWindow.didBecomeKeyNotification,
-                                           object: window)
-
     mainView.wantsLayer = true
 
     let infoDict = InfoDictionary.shared
@@ -168,52 +162,11 @@ class InitialWindowController: NSWindowController {
       UserDefaults.standard.addObserver(self, forKeyPath: key.rawValue, options: .new, context: nil)
     }
     reloadData()
-    presentAISubtitleOnboardingIfNeeded()
-
-  }
-
-  func presentAISubtitleOnboardingIfNeeded() {
-    guard !didAttemptAISubtitleOnboarding,
-          !AISubtitleInitializationState().isComplete else { return }
-    didAttemptAISubtitleOnboarding = true
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
-      guard let self = self,
-            let window = self.window,
-            window.isVisible else { return }
-      let alert = NSAlert()
-      alert.alertStyle = .informational
-      alert.icon = NSApplication.shared.applicationIconImage
-      alert.messageText = aiSubtitleLocalized(
-        "ai_subtitle.onboarding_prompt_title",
-        fallback: "Rawya supports AI subtitles"
-      )
-      alert.informativeText = aiSubtitleLocalized(
-        "ai_subtitle.onboarding_prompt_message",
-        fallback: "Set up local or remote AI once, then Rawya can generate subtitles while your video keeps playing."
-      )
-      alert.addButton(withTitle: aiSubtitleLocalized("ai_subtitle.start_setup",
-                                                     fallback: "Start Setup"))
-      alert.addButton(withTitle: aiSubtitleLocalized("ai_subtitle.setup_later",
-                                                     fallback: "Not Now"))
-      alert.beginSheetModal(for: window) { [weak self, weak window] response in
-        guard response == .alertFirstButtonReturn,
-              let self = self,
-              let window = window else { return }
-        DispatchQueue.main.async {
-          AISubtitleFeatureState().setEnabled(true)
-          self.player.showAISubtitleSettings(parentWindow: window)
-        }
-      }
-    }
-  }
-
-  @objc private func initialWindowDidBecomeKey(_ notification: Notification) {
-    presentAISubtitleOnboardingIfNeeded()
   }
 
   private func applyLocalizedBrandName(_ subtitle: String?) {
-    guard let subtitle else { return }
-    appNameLabel.stringValue = "Rawya \u{00B7} \(subtitle)"
+    let displayName = InfoDictionary.shared.displayName
+    appNameLabel.stringValue = subtitle.map { "\(displayName) \u{00B7} \($0)" } ?? displayName
   }
 
   private func setMaterial(_ theme: Preference.Theme?) {

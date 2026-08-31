@@ -5,9 +5,10 @@
 Each source language is transcribed once per algorithm version. The resulting
 semantic `transcript.json` is then reused for every target language. This keeps
 speech-recognition variation out of translation comparisons. Source and target
-share ordered semantic speech ranges, but each language chooses its own display cue
-count and internal switch times. Exact cue-for-cue timing is an informational metric,
-not a quality gate.
+share ordered semantic anchors, but each language chooses its own display cue count
+and internal switch times. A cue may lead speech by at most 0.12 seconds and may remain
+for at most 0.45 seconds after speech, bounded by the next cue and the six-second
+single-cue limit. Exact cue-for-cue timing is an informational metric, not a quality gate.
 
 All measurements below use the first 600 seconds of the matching test video.
 Reading-speed violations use 15 characters/second for Chinese, Japanese, and
@@ -23,8 +24,9 @@ Korean, and 20 characters/second for English.
 
 Chinese recognition occasionally ends a long result with a separate one-character
 tail. Rejoining that tail before translation removes incorrect isolated words.
-Bounded context translation and a shared 0.35-second semantic-boundary adjustment
-reduce English speed violations without changing the recognized source text. The
+Bounded context translation and a semantic-boundary adjustment of up to 0.35 seconds
+reduce English speed violations without changing the recognized source text. Moving
+the next subtitle ahead of its recognized speech start is capped at 0.12 seconds. The
 current independent display track has 22 violations; the strict v51 baseline had 21.
 The one-cue difference is accepted because preserving two-line width and complete
 content is preferable to deleting words or forcing rapid bilingual transitions.

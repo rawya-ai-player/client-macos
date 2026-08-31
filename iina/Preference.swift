@@ -384,7 +384,7 @@ struct Preference {
     case mediumLight // 3
     case system // 4
 
-    static var defaultValue = Theme.dark
+    static var defaultValue = Theme.system
 
     init?(key: Key) {
       let value = Preference.integer(for: key)
@@ -846,7 +846,7 @@ struct Preference {
     .disableVolumeSliderScrolling: false,
     .playlistWidth: 270,
     .prefetchPlaylistVideoDuration: true,
-    .themeMaterial: Theme.dark.rawValue,
+    .themeMaterial: Theme.system.rawValue,
     .enableOSD: true,
     .disableOSDFileStartMsg: false,
     .disableOSDPauseResumeMsgs: false,

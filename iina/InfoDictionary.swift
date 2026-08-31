@@ -36,8 +36,9 @@ struct InfoDictionary {
   }
 
   private var buildKeyPrefix: String {
-    // As recommended by Apple, IINA's custom Info.plist keys start with the bundle identifier.
-    bundleIdentifier + ".build"
+    // Debug uses a separate .dev bundle identifier, while build metadata keeps
+    // the stable Rawya namespace shared by every configuration.
+    "app.rawya.player.build"
   }
 
   /// The version of the macOS SDK the application was built with.
@@ -87,6 +88,12 @@ struct InfoDictionary {
   }
 
   var bundleIdentifier: String { dictionary["CFBundleIdentifier"] as! String }
+
+  var displayName: String {
+    (dictionary["CFBundleDisplayName"] as? String)
+      ?? (dictionary["CFBundleName"] as? String)
+      ?? "Rawya"
+  }
 
   var copyright: String { dictionary["NSHumanReadableCopyright"] as! String }
 

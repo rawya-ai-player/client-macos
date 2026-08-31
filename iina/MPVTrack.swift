@@ -82,12 +82,19 @@ class MPVTrack: NSObject {
     formattedInfoString(includeCodec: false)
   }
 
+  private var isRawyaAISubtitle: Bool {
+    type == .sub && externalFilename?.lowercased().contains(".rawya-ai.") == true
+  }
+
   private func formattedInfoString(includeCodec: Bool) -> String {
       // title
       let title = title ?? ""
       // lang
       let language: String
-      if let lang, lang != "und", let rawLang = ISO639Helper.dictionary[lang] {
+      if !isRawyaAISubtitle,
+         let lang,
+         lang != "und",
+         let rawLang = ISO639Helper.dictionary[lang] {
         language = "[\(rawLang)]"
       } else {
         language = ""

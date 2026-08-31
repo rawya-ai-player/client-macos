@@ -39,7 +39,9 @@ fi
 
 mkdir -p "$(dirname "$archive_path")" "$(dirname "$export_path")" "$artifact_dir"
 
-echo "Archiving Rawya with Developer ID (${branch} @ ${revision})"
+allocated_build_number="$("${repo_root}/scripts/next_build_number.sh")"
+
+echo "Archiving Rawya build ${allocated_build_number} with Developer ID (${branch} @ ${revision})"
 DEVELOPER_DIR="$developer_dir" \
   xcodebuild -quiet \
   -project "${repo_root}/iina.xcodeproj" \
@@ -51,6 +53,7 @@ DEVELOPER_DIR="$developer_dir" \
   DEVELOPMENT_TEAM="$team_id" \
   CODE_SIGN_STYLE=Manual \
   CODE_SIGN_IDENTITY="$signing_identity" \
+  CURRENT_PROJECT_VERSION="$allocated_build_number" \
   OTHER_CODE_SIGN_FLAGS='--timestamp' \
   archive
 
@@ -95,6 +98,10 @@ codesign --force \
 
 version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${app_path}/Contents/Info.plist")"
 build_number="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "${app_path}/Contents/Info.plist")"
+if [[ "$build_number" != "$allocated_build_number" ]]; then
+  echo "Exported app has unexpected build number: ${build_number}" >&2
+  exit 1
+fi
 submission_zip="${artifact_dir}/Rawya-${version}-${build_number}-signed.zip"
 ditto -c -k --sequesterRsrc --keepParent "$app_path" "$submission_zip"
 

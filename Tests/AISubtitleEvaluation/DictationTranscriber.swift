@@ -70,13 +70,16 @@ final class EvaluationAppleDictationTranscriber: AISubtitleTranscriber {
                               chunkOffset: Double,
                               language: AISubtitleLanguage) async throws -> [AISubtitleSegment] {
     var segments: [AISubtitleSegment] = []
+    var previousAudioEnd: Double?
     let timedTextSegmenter = AppleSpeechTimedTextSegmenter()
     for try await result in transcriber.results where result.isFinal {
       let timed = timedTextSegmenter.segments(from: result.text,
                                               chunkOffset: chunkOffset,
-                                              language: language)
-      if !timed.isEmpty {
-        segments.append(contentsOf: timed)
+                                              language: language,
+                                              precedingAudioEnd: previousAudioEnd)
+      previousAudioEnd = timed.lastAudioEnd ?? result.range.end.seconds
+      if !timed.segments.isEmpty {
+        segments.append(contentsOf: timed.segments)
         continue
       }
       let text = String(result.text.characters).trimmingCharacters(in: .whitespacesAndNewlines)

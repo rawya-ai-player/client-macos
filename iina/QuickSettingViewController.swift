@@ -102,30 +102,41 @@ class QuickSettingViewController: NSViewController, NSTableViewDataSource, NSTab
 
   var observers: [NSObjectProtocol] = []
 
-  @IBOutlet weak var videoTabScrollView: NSScrollView!
-  @IBOutlet weak var audioTabScrollView: NSScrollView!
-  @IBOutlet weak var subtitlesTabScrollView: NSScrollView!
+  // These are top-level objects in the XIB, so the controller must retain them
+  // until they are attached to their NSTabViewItems.
+  @IBOutlet var videoTabScrollView: NSScrollView!
+  @IBOutlet var audioTabScrollView: NSScrollView!
+  @IBOutlet var subtitlesTabScrollView: NSScrollView!
 
   @IBOutlet weak var videoTabBtn: NSButton!
   @IBOutlet weak var audioTabBtn: NSButton!
   @IBOutlet weak var subTabBtn: NSButton!
+  @IBOutlet weak var aiSubtitleTabBtn: NSButton!
   @IBOutlet weak var tabView: NSTabView!
 
-  private var aiSubtitleTabBtn: NSButton!
   private var aiSubtitleTabScrollView: NSScrollView!
+  private var aiSubtitleDocumentView: FlippedView!
+  private var aiSubtitleContentStack: NSStackView!
   private let aiSubtitleStatusLabel = NSTextField(wrappingLabelWithString: "")
-  private let aiSubtitleProgressLabel = NSTextField(labelWithString: "")
-  private let aiSubtitleProgressIndicator = NSProgressIndicator()
-  private let aiSubtitleProgressRow = NSStackView()
-  private let aiSubtitleAutoModePopup = NSPopUpButton()
-  private let aiSubtitleSourceLanguagePopup = NSPopUpButton()
+  private let aiSubtitleStatusRow = NSStackView()
+  private let aiSubtitleFeatureSwitch = NSSwitch()
+  private var aiSubtitleAutoModeButtons: [NSButton] = []
   private let aiSubtitleTargetLanguagePopup = NSPopUpButton()
+  private let aiSubtitleSourceLanguageStack = NSStackView()
+  private var aiSubtitleSourceLanguageButtons: [NSButton] = []
+  private let aiSubtitleMoreLanguagesPopup = NSPopUpButton()
+  private var aiSubtitleSelectedSourceLanguageCode: String?
+  private var aiSubtitleSelectionMediaURL: URL?
   private let aiSubtitleLivePreviewCheckbox = NSButton()
   private let aiSubtitleGenerateButton = NSButton()
   private let aiSubtitleStopButton = NSButton()
   private let aiSubtitleManageButton = NSButton()
   private let aiSubtitleRevealButton = NSButton()
   private let aiSubtitleUpgradeButton = NSButton()
+  private var aiSubtitlePreparedSpeechCodes = Set<String>()
+  private var aiSubtitlePreparedTranslationPairs = Set<String>()
+  private var aiSubtitleLanguageProbeTask: Task<Void, Never>?
+  private var aiSubtitleLanguageProbeGeneration = 0
 
   @IBOutlet weak var buttonTopConstraint: NSLayoutConstraint!
 
@@ -238,11 +249,11 @@ class QuickSettingViewController: NSViewController, NSTableViewDataSource, NSTab
   override func viewDidLoad() {
     super.viewDidLoad()
 
-    installAISubtitleTab()
-    let tabScrollViews = [videoTabScrollView, audioTabScrollView, subtitlesTabScrollView, aiSubtitleTabScrollView]
+    let tabScrollViews = [videoTabScrollView, audioTabScrollView, subtitlesTabScrollView]
     for (view, item) in zip(tabScrollViews, tabView.tabViewItems) {
       item.view = view
     }
+    installAISubtitleTab()
 
     withAllTableViews { (view, _) in
       view.delegate = self
@@ -349,15 +360,7 @@ class QuickSettingViewController: NSViewController, NSTableViewDataSource, NSTab
   }
 
   private func installAISubtitleTab() {
-    aiSubtitleTabBtn = NSButton(title: aiSubtitleLocalized("ai_subtitle.tab", fallback: "AI"),
-                                target: self,
-                                action: #selector(tabBtnAction(_:)))
-    if let templateCell = subTabBtn.cell?.copy() as? NSButtonCell {
-      aiSubtitleTabBtn.cell = templateCell
-      aiSubtitleTabBtn.title = aiSubtitleLocalized("ai_subtitle.tab", fallback: "AI")
-      aiSubtitleTabBtn.target = self
-      aiSubtitleTabBtn.action = #selector(tabBtnAction(_:))
-    }
+    aiSubtitleTabBtn.title = aiSubtitleLocalized("ai_subtitle.tab", fallback: "AI")
     aiSubtitleTabBtn.tag = TabViewType.aiSubtitle.buttonTag
     if #available(macOS 14.0, *) {
       let configuration = NSImage.SymbolConfiguration(pointSize: 18, weight: .bold)
@@ -368,17 +371,15 @@ class QuickSettingViewController: NSViewController, NSTableViewDataSource, NSTab
     }
     aiSubtitleTabBtn.imagePosition = .imageLeading
     aiSubtitleTabBtn.imageScaling = .scaleProportionallyDown
-    aiSubtitleTabBtn.translatesAutoresizingMaskIntoConstraints = false
-    aiSubtitleTabBtn.heightAnchor.constraint(equalToConstant: 48).isActive = true
-    (subTabBtn.superview as? NSStackView)?.addArrangedSubview(aiSubtitleTabBtn)
 
     aiSubtitleTabScrollView = NSScrollView()
     aiSubtitleTabScrollView.drawsBackground = false
     aiSubtitleTabScrollView.hasVerticalScroller = true
     aiSubtitleTabScrollView.autohidesScrollers = true
-    let documentView = FlippedView()
-    documentView.translatesAutoresizingMaskIntoConstraints = false
+    let documentView = FlippedView(frame: NSRect(x: 0, y: 0, width: 360, height: 1000))
+    documentView.autoresizingMask = [.width]
     aiSubtitleTabScrollView.documentView = documentView
+    aiSubtitleDocumentView = documentView
 
     let stack = NSStackView()
     stack.orientation = .vertical
@@ -387,80 +388,53 @@ class QuickSettingViewController: NSViewController, NSTableViewDataSource, NSTab
     stack.edgeInsets = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
     stack.translatesAutoresizingMaskIntoConstraints = false
     documentView.addSubview(stack)
+    aiSubtitleContentStack = stack
     NSLayoutConstraint.activate([
-      documentView.leadingAnchor.constraint(equalTo: aiSubtitleTabScrollView.contentView.leadingAnchor),
-      documentView.trailingAnchor.constraint(equalTo: aiSubtitleTabScrollView.contentView.trailingAnchor),
-      documentView.topAnchor.constraint(equalTo: aiSubtitleTabScrollView.contentView.topAnchor),
-      documentView.widthAnchor.constraint(equalTo: aiSubtitleTabScrollView.contentView.widthAnchor),
       stack.leadingAnchor.constraint(equalTo: documentView.leadingAnchor),
       stack.trailingAnchor.constraint(equalTo: documentView.trailingAnchor),
-      stack.topAnchor.constraint(equalTo: documentView.topAnchor),
-      stack.bottomAnchor.constraint(equalTo: documentView.bottomAnchor)
+      stack.topAnchor.constraint(equalTo: documentView.topAnchor)
     ])
+    attachAISubtitleTabScrollView()
+
+    aiSubtitleFeatureSwitch.controlSize = .small
+    aiSubtitleFeatureSwitch.target = self
+    aiSubtitleFeatureSwitch.action = #selector(aiSubtitleFeatureChanged(_:))
+    let featureLabel = NSTextField(labelWithString: aiSubtitleLocalized(
+      "ai_subtitle.enable_feature",
+      fallback: "Enable AI Subtitles"
+    ))
+    featureLabel.font = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
+    aiSubtitleFeatureSwitch.setAccessibilityLabel(featureLabel.stringValue)
+    let featureRow = NSStackView(views: [aiSubtitleFeatureSwitch, featureLabel])
+    featureRow.orientation = .horizontal
+    featureRow.alignment = .centerY
+    featureRow.spacing = 8
+    stack.addArrangedSubview(featureRow)
 
     aiSubtitleStatusLabel.font = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
     aiSubtitleStatusLabel.maximumNumberOfLines = 3
     aiSubtitleStatusLabel.lineBreakMode = .byWordWrapping
-    aiSubtitleProgressLabel.font = NSFont.monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize,
-                                                                    weight: .regular)
-    aiSubtitleProgressLabel.textColor = .secondaryLabelColor
-    aiSubtitleProgressLabel.setContentHuggingPriority(.required, for: .horizontal)
-    let statusRow = NSStackView(views: [aiSubtitleStatusLabel])
-    statusRow.orientation = .horizontal
-    statusRow.alignment = .firstBaseline
-    stack.addArrangedSubview(statusRow)
-    statusRow.widthAnchor.constraint(equalTo: stack.widthAnchor,
-                                     constant: -stack.edgeInsets.left - stack.edgeInsets.right).isActive = true
-
-    aiSubtitleProgressIndicator.style = .bar
-    aiSubtitleProgressIndicator.isIndeterminate = false
-    aiSubtitleProgressIndicator.minValue = 0
-    aiSubtitleProgressIndicator.maxValue = 100
-    aiSubtitleProgressIndicator.isDisplayedWhenStopped = true
-    aiSubtitleProgressIndicator.controlSize = .small
-    aiSubtitleProgressIndicator.setContentHuggingPriority(.defaultLow, for: .horizontal)
-    aiSubtitleProgressIndicator.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-    aiSubtitleProgressRow.orientation = .horizontal
-    aiSubtitleProgressRow.alignment = .centerY
-    aiSubtitleProgressRow.spacing = 8
-    aiSubtitleProgressRow.addArrangedSubview(aiSubtitleProgressIndicator)
-    aiSubtitleProgressRow.addArrangedSubview(aiSubtitleProgressLabel)
-    stack.addArrangedSubview(aiSubtitleProgressRow)
-    aiSubtitleProgressRow.widthAnchor.constraint(equalTo: statusRow.widthAnchor).isActive = true
+    aiSubtitleStatusRow.addArrangedSubview(aiSubtitleStatusLabel)
+    aiSubtitleStatusRow.orientation = .horizontal
+    aiSubtitleStatusRow.alignment = .firstBaseline
+    stack.addArrangedSubview(aiSubtitleStatusRow)
+    aiSubtitleStatusRow.widthAnchor.constraint(equalTo: stack.widthAnchor,
+                                               constant: -stack.edgeInsets.left - stack.edgeInsets.right).isActive = true
 
     let separator = NSBox()
     separator.boxType = .separator
     stack.addArrangedSubview(separator)
-    separator.widthAnchor.constraint(equalTo: statusRow.widthAnchor).isActive = true
+    separator.widthAnchor.constraint(equalTo: aiSubtitleStatusRow.widthAnchor).isActive = true
 
-    let settingsTitle = NSTextField(labelWithString: aiSubtitleLocalized(
-      "ai_subtitle.generation_settings",
-      fallback: "Generation settings"
-    ))
-    settingsTitle.font = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
-    stack.addArrangedSubview(settingsTitle)
-    aiSubtitleAutoModePopup.addItems(withTitles: [
-      aiSubtitleLocalized("ai_subtitle.auto.always", fallback: "Always generate automatically"),
-      aiSubtitleLocalized("ai_subtitle.auto.when_missing", fallback: "Generate automatically when subtitles are missing"),
-      aiSubtitleLocalized("ai_subtitle.auto.manual", fallback: "Manual only")
-    ])
-    aiSubtitleAutoModePopup.controlSize = .small
-    aiSubtitleAutoModePopup.target = self
-    aiSubtitleAutoModePopup.action = #selector(aiSubtitleAutoModeChanged(_:))
-
-    configureAISubtitleLanguagePopup(aiSubtitleSourceLanguagePopup,
-                                     options: AISubtitleLanguageCatalog.sourceLanguages)
-    configureAISubtitleLanguagePopup(aiSubtitleTargetLanguagePopup,
-                                     options: AISubtitleLanguageCatalog.targetLanguages)
-    aiSubtitleSourceLanguagePopup.target = self
-    aiSubtitleSourceLanguagePopup.action = #selector(aiSubtitleLanguageChanged(_:))
     aiSubtitleTargetLanguagePopup.target = self
     aiSubtitleTargetLanguagePopup.action = #selector(aiSubtitleLanguageChanged(_:))
-    aiSubtitleSourceLanguagePopup.controlSize = .small
     aiSubtitleTargetLanguagePopup.controlSize = .small
-    let autoModeLabel = NSTextField(labelWithString: aiSubtitleLocalized(
-      "ai_subtitle.auto_mode",
-      fallback: "Automatic generation"
+    aiSubtitleMoreLanguagesPopup.controlSize = .small
+    aiSubtitleMoreLanguagesPopup.target = self
+    aiSubtitleMoreLanguagesPopup.action = #selector(aiSubtitleMoreLanguageChanged(_:))
+    let languageSectionLabel = NSTextField(labelWithString: aiSubtitleLocalized(
+      "ai_subtitle.section.languages",
+      fallback: "Default Languages"
     ))
     let sourceLanguageLabel = NSTextField(labelWithString: aiSubtitleLocalized(
       "ai_subtitle.default_spoken_language",
@@ -470,42 +444,132 @@ class QuickSettingViewController: NSViewController, NSTableViewDataSource, NSTab
       "ai_subtitle.default_subtitle_language",
       fallback: "Subtitle language"
     ))
-    [autoModeLabel, sourceLanguageLabel, targetLanguageLabel].forEach {
+    let autoModeLabel = NSTextField(labelWithString: aiSubtitleLocalized(
+      "ai_subtitle.section.automation",
+      fallback: "Generation"
+    ))
+    let sectionTitleFont = NSFont.systemFont(ofSize: NSFont.systemFontSize + 1, weight: .semibold)
+    languageSectionLabel.font = sectionTitleFont
+    autoModeLabel.font = sectionTitleFont
+    [sourceLanguageLabel, targetLanguageLabel].forEach {
       $0.textColor = .secondaryLabelColor
       $0.alignment = .right
     }
-    let languageGrid = NSGridView(views: [
-      [autoModeLabel, aiSubtitleAutoModePopup],
-      [sourceLanguageLabel, aiSubtitleSourceLanguagePopup],
-      [targetLanguageLabel, aiSubtitleTargetLanguagePopup]
-    ])
-    languageGrid.rowSpacing = 10
-    languageGrid.columnSpacing = 12
-    languageGrid.column(at: 0).xPlacement = .trailing
-    languageGrid.column(at: 1).xPlacement = .fill
-    stack.addArrangedSubview(languageGrid)
-    languageGrid.widthAnchor.constraint(equalTo: statusRow.widthAnchor).isActive = true
+    let autoModeOptions: [(AISubtitleAutoMode, String, String)] = [
+      (.always,
+       aiSubtitleLocalized("ai_subtitle.auto.always",
+                           fallback: "Generate automatically using default languages"),
+       aiSubtitleLocalized("ai_subtitle.auto.always_description",
+                           fallback: "Best for videos usually in the same language. Starts when a video opens.")),
+      (.whenMissing,
+       aiSubtitleLocalized("ai_subtitle.auto.when_missing",
+                           fallback: "Use default languages when subtitles are missing"),
+       aiSubtitleLocalized("ai_subtitle.auto.when_missing_description",
+                           fallback: "Uses existing subtitles first and generates only when none are available.")),
+      (.confirmLanguage,
+       aiSubtitleLocalized("ai_subtitle.auto.confirm_language",
+                           fallback: "Generate after confirming languages"),
+       aiSubtitleLocalized("ai_subtitle.auto.confirm_language_description",
+                           fallback: "Best when switching between video languages. Confirm the audio language to start.")),
+      (.manual,
+       aiSubtitleLocalized("ai_subtitle.auto.manual",
+                           fallback: "Generate manually only"),
+       aiSubtitleLocalized("ai_subtitle.auto.manual_description",
+                           fallback: "Best for occasional use. Start AI subtitles only when needed."))
+    ]
+    var autoModeOptionViews: [NSView] = []
+    aiSubtitleAutoModeButtons = autoModeOptions.map { mode, title, description in
+      let button = NSButton(radioButtonWithTitle: title,
+                            target: self,
+                            action: #selector(aiSubtitleAutoModeChanged(_:)))
+      button.tag = mode.rawValue
+      button.controlSize = .regular
+      button.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+      if let cell = button.cell as? NSButtonCell {
+        cell.lineBreakMode = .byWordWrapping
+        cell.wraps = true
+      }
+      let descriptionLabel = NSTextField(wrappingLabelWithString: description)
+      descriptionLabel.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+      descriptionLabel.textColor = .secondaryLabelColor
+      descriptionLabel.maximumNumberOfLines = 0
+      descriptionLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+      let optionStack = NSStackView(views: [button, descriptionLabel])
+      optionStack.orientation = .vertical
+      optionStack.alignment = .leading
+      optionStack.spacing = 2
+      optionStack.edgeInsets = NSEdgeInsets(top: 0, left: 0, bottom: 2, right: 0)
+      descriptionLabel.leadingAnchor.constraint(equalTo: optionStack.leadingAnchor, constant: 22).isActive = true
+      descriptionLabel.trailingAnchor.constraint(lessThanOrEqualTo: optionStack.trailingAnchor).isActive = true
+      autoModeOptionViews.append(optionStack)
+      return button
+    }
+    let autoModeStack = NSStackView(views: autoModeOptionViews)
+    autoModeStack.orientation = .vertical
+    autoModeStack.alignment = .leading
+    autoModeStack.spacing = 8
+    autoModeOptionViews.forEach { $0.widthAnchor.constraint(equalTo: autoModeStack.widthAnchor).isActive = true }
+    aiSubtitleTargetLanguagePopup.widthAnchor.constraint(equalToConstant: 128).isActive = true
+    aiSubtitleMoreLanguagesPopup.widthAnchor.constraint(equalToConstant: 128).isActive = true
+    aiSubtitleSourceLanguageStack.orientation = .vertical
+    aiSubtitleSourceLanguageStack.alignment = .leading
+    aiSubtitleSourceLanguageStack.spacing = 5
+    aiSubtitleSourceLanguageStack.detachesHiddenViews = true
+    let targetLanguageRow = NSStackView(views: [targetLanguageLabel, aiSubtitleTargetLanguagePopup])
+    let sourceLanguageRow = NSStackView(views: [sourceLanguageLabel, aiSubtitleSourceLanguageStack])
+    targetLanguageRow.orientation = .horizontal
+    targetLanguageRow.alignment = .centerY
+    targetLanguageRow.spacing = 12
+    sourceLanguageRow.orientation = .horizontal
+    sourceLanguageRow.alignment = .top
+    sourceLanguageRow.spacing = 12
+    let languageRows = NSStackView(views: [targetLanguageRow, sourceLanguageRow])
+    languageRows.orientation = .vertical
+    languageRows.alignment = .leading
+    languageRows.spacing = 10
+    languageRows.edgeInsets = NSEdgeInsets(top: 0, left: 12, bottom: 0, right: 0)
+    targetLanguageLabel.widthAnchor.constraint(equalTo: sourceLanguageLabel.widthAnchor).isActive = true
+    targetLanguageLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 128).isActive = true
+    let languageSection = NSStackView(views: [languageSectionLabel, languageRows])
+    languageSection.orientation = .vertical
+    languageSection.alignment = .leading
+    languageSection.spacing = 8
+    stack.addArrangedSubview(languageSection)
+    languageSection.widthAnchor.constraint(equalTo: aiSubtitleStatusRow.widthAnchor).isActive = true
+
+    autoModeStack.edgeInsets = NSEdgeInsets(top: 0, left: 12, bottom: 0, right: 0)
+    let autoModeSection = NSStackView(views: [autoModeLabel, autoModeStack])
+    autoModeSection.orientation = .vertical
+    autoModeSection.alignment = .leading
+    autoModeSection.spacing = 6
+    stack.addArrangedSubview(autoModeSection)
+    autoModeSection.widthAnchor.constraint(equalTo: aiSubtitleStatusRow.widthAnchor).isActive = true
+    autoModeStack.widthAnchor.constraint(equalTo: autoModeSection.widthAnchor, constant: -12).isActive = true
+    stack.setCustomSpacing(16, after: languageSection)
 
     aiSubtitleLivePreviewCheckbox.setButtonType(.switch)
     aiSubtitleLivePreviewCheckbox.title = aiSubtitleLocalized(
       "ai_subtitle.live_preview",
-      fallback: "Show subtitles while generating"
+      fallback: "Show subtitles as they are generated"
     )
-    aiSubtitleLivePreviewCheckbox.controlSize = .small
+    aiSubtitleLivePreviewCheckbox.controlSize = .regular
+    aiSubtitleLivePreviewCheckbox.font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
     aiSubtitleLivePreviewCheckbox.target = self
     aiSubtitleLivePreviewCheckbox.action = #selector(aiSubtitleLivePreviewChanged(_:))
     stack.addArrangedSubview(aiSubtitleLivePreviewCheckbox)
 
-    aiSubtitleGenerateButton.title = aiSubtitleLocalized("ai_subtitle.generate", fallback: "Generate AI Subtitles")
+    aiSubtitleGenerateButton.title = aiSubtitleLocalized("ai_subtitle.generate",
+                                                         fallback: "Start Generating Subtitles")
     aiSubtitleGenerateButton.target = self
     aiSubtitleGenerateButton.action = #selector(generateAISubtitles(_:))
-    aiSubtitleStopButton.title = aiSubtitleLocalized("ai_subtitle.stop_short", fallback: "Stop")
+    aiSubtitleStopButton.title = aiSubtitleLocalized("ai_subtitle.stop_short",
+                                                     fallback: "Stop Generating Subtitles")
     aiSubtitleStopButton.target = self
     aiSubtitleStopButton.action = #selector(stopAISubtitles(_:))
-    aiSubtitleManageButton.title = aiSubtitleLocalized("ai_subtitle.manage", fallback: "Manage…")
+    aiSubtitleManageButton.title = NSLocalizedString("preference.title", comment: "Settings") + "…"
     aiSubtitleManageButton.target = self
     aiSubtitleManageButton.action = #selector(manageAISubtitles(_:))
-    aiSubtitleRevealButton.title = aiSubtitleLocalized("ai_subtitle.reveal_files", fallback: "Show Subtitle Files")
+    aiSubtitleRevealButton.title = NSLocalizedString("pl_menu.show_in_finder", comment: "Show in Finder")
     aiSubtitleRevealButton.target = self
     aiSubtitleRevealButton.action = #selector(revealAISubtitleFiles(_:))
     [aiSubtitleGenerateButton, aiSubtitleStopButton, aiSubtitleRevealButton, aiSubtitleManageButton].forEach {
@@ -516,7 +580,7 @@ class QuickSettingViewController: NSViewController, NSTableViewDataSource, NSTab
     primaryActions.spacing = 0
     primaryActions.detachesHiddenViews = true
     stack.addArrangedSubview(primaryActions)
-    primaryActions.widthAnchor.constraint(equalTo: statusRow.widthAnchor).isActive = true
+    primaryActions.widthAnchor.constraint(equalTo: aiSubtitleStatusRow.widthAnchor).isActive = true
     aiSubtitleGenerateButton.widthAnchor.constraint(equalTo: primaryActions.widthAnchor).isActive = true
     aiSubtitleStopButton.widthAnchor.constraint(equalTo: primaryActions.widthAnchor).isActive = true
 
@@ -526,7 +590,7 @@ class QuickSettingViewController: NSViewController, NSTableViewDataSource, NSTab
     secondaryActions.spacing = 8
     secondaryActions.detachesHiddenViews = true
     stack.addArrangedSubview(secondaryActions)
-    secondaryActions.widthAnchor.constraint(equalTo: statusRow.widthAnchor).isActive = true
+    secondaryActions.widthAnchor.constraint(equalTo: aiSubtitleStatusRow.widthAnchor).isActive = true
 
     aiSubtitleUpgradeButton.title = aiSubtitleLocalized("ai_subtitle.open_software_update",
                                                         fallback: "Open Software Update")
@@ -534,12 +598,12 @@ class QuickSettingViewController: NSViewController, NSTableViewDataSource, NSTab
     aiSubtitleUpgradeButton.action = #selector(openAISubtitleSoftwareUpdate(_:))
     aiSubtitleUpgradeButton.controlSize = .regular
     stack.addArrangedSubview(aiSubtitleUpgradeButton)
-    aiSubtitleUpgradeButton.widthAnchor.constraint(equalTo: statusRow.widthAnchor).isActive = true
+    aiSubtitleUpgradeButton.widthAnchor.constraint(equalTo: aiSubtitleStatusRow.widthAnchor).isActive = true
 
     let disclaimerSeparator = NSBox()
     disclaimerSeparator.boxType = .separator
     stack.addArrangedSubview(disclaimerSeparator)
-    disclaimerSeparator.widthAnchor.constraint(equalTo: statusRow.widthAnchor).isActive = true
+    disclaimerSeparator.widthAnchor.constraint(equalTo: aiSubtitleStatusRow.widthAnchor).isActive = true
 
     let disclaimer = NSTextField(wrappingLabelWithString: aiSubtitleLocalized(
       "ai_subtitle.disclaimer",
@@ -549,47 +613,112 @@ class QuickSettingViewController: NSViewController, NSTableViewDataSource, NSTab
     disclaimer.textColor = .secondaryLabelColor
     disclaimer.maximumNumberOfLines = 0
     stack.addArrangedSubview(disclaimer)
-    disclaimer.widthAnchor.constraint(equalTo: statusRow.widthAnchor).isActive = true
+    disclaimer.widthAnchor.constraint(equalTo: aiSubtitleStatusRow.widthAnchor).isActive = true
 
-    let item = NSTabViewItem(identifier: TabViewType.aiSubtitle.name)
-    item.view = aiSubtitleTabScrollView
-    tabView.addTabViewItem(item)
+    scheduleAISubtitleContentLayout()
+    refreshAISubtitlePreparedLanguages()
     updateAISubtitleTab()
+  }
+
+  private func attachAISubtitleTabScrollView() {
+    let item = tabView.tabViewItem(at: TabViewType.aiSubtitle.buttonTag)
+    item.identifier = TabViewType.aiSubtitle.name
+    let containerFrame = item.view?.frame ?? NSRect(x: 0, y: 0, width: 360, height: 480)
+    let containerView = NSView(frame: containerFrame)
+    containerView.autoresizingMask = [.width, .height]
+    aiSubtitleTabScrollView.translatesAutoresizingMaskIntoConstraints = false
+    containerView.addSubview(aiSubtitleTabScrollView)
+    NSLayoutConstraint.activate([
+      aiSubtitleTabScrollView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+      aiSubtitleTabScrollView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+      aiSubtitleTabScrollView.topAnchor.constraint(equalTo: containerView.topAnchor),
+      aiSubtitleTabScrollView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor)
+    ])
+    item.view = containerView
+  }
+
+  private func scheduleAISubtitleContentLayout() {
+    DispatchQueue.main.async { [weak self] in
+      self?.updateAISubtitleContentLayout()
+    }
+  }
+
+  private func updateAISubtitleContentLayout() {
+    guard let scrollView = aiSubtitleTabScrollView,
+          let documentView = aiSubtitleDocumentView,
+          let stack = aiSubtitleContentStack else { return }
+    let contentSize = scrollView.contentSize
+    let width = max(contentSize.width, 1)
+    documentView.setFrameSize(NSSize(width: width, height: max(contentSize.height, 1)))
+    documentView.layoutSubtreeIfNeeded()
+    stack.layoutSubtreeIfNeeded()
+    let height = max(ceil(stack.fittingSize.height), contentSize.height)
+    documentView.setFrameSize(NSSize(width: width, height: height))
+    documentView.layoutSubtreeIfNeeded()
   }
 
   private func updateAISubtitleTab() {
     guard isViewLoaded else { return }
+    loadAISubtitlePreparedLanguageSnapshot()
     let supported = player.isAISubtitleSystemSupported
     let featureEnabled = AISubtitleFeatureState().isEnabled
+    let planReady = AISubtitleInitializationState().isComplete
     let state = player.aiSubtitleState
     let running = ![.idle, .completed, .failed, .canceled, .maintaining].contains(state.phase)
-    let progress = state.progress ?? 0
-    let sourceCode = UserDefaults.standard.string(forKey: "aiSubtitle.sourceLanguage")
-      ?? player.info.currentTrack(.audio)?.lang
-    let targetCode = UserDefaults.standard.string(forKey: "aiSubtitle.targetLanguage")
-      ?? Locale.preferredLanguages.first
-      ?? "en"
-    selectAISubtitleLanguage(sourceCode, in: aiSubtitleSourceLanguagePopup)
-    selectAISubtitleLanguage(targetCode, in: aiSubtitleTargetLanguagePopup)
-    aiSubtitleProgressIndicator.doubleValue = progress * 100
-    aiSubtitleProgressLabel.stringValue = String(format: "%d%%", Int((progress * 100).rounded()))
-    let showsProgress = running || (progress > 0 && state.phase != .completed)
-    aiSubtitleProgressRow.isHidden = !showsProgress
-    aiSubtitleAutoModePopup.selectItem(at: AISubtitleAutoMode.current.rawValue)
-    aiSubtitleAutoModePopup.isEnabled = supported && featureEnabled
-    aiSubtitleSourceLanguagePopup.isEnabled = supported && featureEnabled && !running
-    aiSubtitleTargetLanguagePopup.isEnabled = supported && featureEnabled && !running
+    if aiSubtitleSelectionMediaURL != player.info.currentURL {
+      aiSubtitleSelectionMediaURL = player.info.currentURL
+      aiSubtitleSelectedSourceLanguageCode = nil
+    }
+    let historyStore = AISubtitleLanguageHistoryStore()
+    let rememberedSourceCode = player.info.currentURL.flatMap {
+      historyStore.sourceLanguageCode(for: $0)
+    }
+    let preferredSourceCode = running
+      ? player.aiSubtitleActiveSourceLanguage?.code
+      : aiSubtitleSelectedSourceLanguageCode
+        ?? rememberedSourceCode
+        ?? (AISubtitleAutoMode.current.requiresLanguageConfirmation
+          ? historyStore.recentSourceLanguageCodes.first
+          : nil)
+        ?? UserDefaults.standard.string(forKey: "aiSubtitle.sourceLanguage")
+        ?? player.info.currentTrack(.audio)?.lang
+    let preferredTargetCode = running
+      ? player.aiSubtitleActiveTargetLanguage?.code
+      : (aiSubtitleTargetLanguagePopup.selectedItem?.representedObject as? String)
+        ?? UserDefaults.standard.string(forKey: "aiSubtitle.targetLanguage")
+    refreshAISubtitleLanguageMenus(preferredTargetCode: preferredTargetCode,
+                                   preferredSourceCode: preferredSourceCode)
+    let sourceCode = aiSubtitleSelectedSourceLanguageCode
+    let targetCode = aiSubtitleTargetLanguagePopup.selectedItem?.representedObject as? String
+    aiSubtitleFeatureSwitch.state = planReady && featureEnabled ? .on : .off
+    aiSubtitleFeatureSwitch.isEnabled = planReady
+    let selectedAutoMode = AISubtitleAutoMode.current
+    aiSubtitleAutoModeButtons.forEach {
+      $0.state = $0.tag == selectedAutoMode.rawValue ? .on : .off
+      $0.isEnabled = planReady && featureEnabled
+    }
+    let hasTargetOptions = aiSubtitleTargetLanguagePopup.itemArray.contains { $0.representedObject is String }
+    let hasSourceOptions = !aiSubtitleSourceLanguageButtons.isEmpty
+    aiSubtitleTargetLanguagePopup.isEnabled = supported && featureEnabled && !running && hasTargetOptions
+    let sourceSelectionEnabled = supported
+      && featureEnabled
+      && !running
+      && targetCode != nil
+      && hasSourceOptions
+    aiSubtitleSourceLanguageButtons.forEach { $0.isEnabled = sourceSelectionEnabled }
+    aiSubtitleMoreLanguagesPopup.isEnabled = sourceSelectionEnabled
     aiSubtitleLivePreviewCheckbox.state = AISubtitleLivePreviewState().isEnabled ? .on : .off
     aiSubtitleLivePreviewCheckbox.isEnabled = supported && featureEnabled
     aiSubtitleGenerateButton.isEnabled = supported
       && featureEnabled
       && !running
       && sourceCode != nil
+      && targetCode != nil
       && player.info.currentURL != nil
       && !player.info.audioTracks.isEmpty
     aiSubtitleGenerateButton.title = player.hasExportableAISubtitles
-      ? aiSubtitleLocalized("ai_subtitle.regenerate", fallback: "Generate AI Subtitles Again")
-      : aiSubtitleLocalized("ai_subtitle.generate", fallback: "Generate AI Subtitles")
+      ? aiSubtitleLocalized("ai_subtitle.regenerate", fallback: "Regenerate Subtitles")
+      : aiSubtitleLocalized("ai_subtitle.generate", fallback: "Start Generating Subtitles")
     aiSubtitleGenerateButton.isHidden = running
     aiSubtitleStopButton.isEnabled = running
     aiSubtitleStopButton.isHidden = !running
@@ -598,33 +727,26 @@ class QuickSettingViewController: NSViewController, NSTableViewDataSource, NSTab
     aiSubtitleRevealButton.isEnabled = !player.aiSubtitleSidecarURLs.isEmpty
     aiSubtitleUpgradeButton.isHidden = supported
 
-    if supported && !featureEnabled {
-      aiSubtitleStatusLabel.stringValue = aiSubtitleLocalized(
-        "ai_subtitle.disabled_status",
-        fallback: "AI Subtitles is off. You can enable it in Settings."
-      )
-    } else if supported && sourceCode == nil {
-      aiSubtitleStatusLabel.stringValue = aiSubtitleLocalized(
-        "ai_subtitle.source_required",
-        fallback: "Choose the video's spoken language before generating AI subtitles."
-      )
+    if supported && (!featureEnabled || targetCode == nil || sourceCode == nil) {
+      aiSubtitleStatusLabel.stringValue = ""
     } else if supported && running {
-      aiSubtitleStatusLabel.stringValue = aiSubtitleLocalized(
-        "ai_subtitle.generating",
-        fallback: "Generating AI subtitles…"
-      )
+      aiSubtitleStatusLabel.stringValue = ""
+    } else if supported && (state.phase == .completed
+      || state.message == aiSubtitleLocalized(
+        "ai_subtitle.loaded_cached_result",
+        fallback: "Loaded the existing AI subtitles."
+      )) {
+      aiSubtitleStatusLabel.stringValue = ""
     } else if supported {
-      aiSubtitleStatusLabel.stringValue = state.error?.message
-        ?? state.message
-        ?? aiSubtitleLocalized("ai_subtitle.state.\(state.phase.rawValue)",
-                               fallback: state.phase.rawValue.capitalized)
+      aiSubtitleStatusLabel.stringValue = state.error?.message ?? state.message ?? ""
     } else {
       aiSubtitleStatusLabel.stringValue = aiSubtitleLocalized(
         "ai_subtitle.upgrade_message",
         fallback: "AI Subtitles requires macOS 26 or later for Apple on-device speech and translation."
       )
     }
-
+    aiSubtitleStatusRow.isHidden = aiSubtitleStatusLabel.stringValue.isEmpty
+    scheduleAISubtitleContentLayout()
   }
 
   private func configureAISubtitleLanguagePopup(_ popup: NSPopUpButton,
@@ -634,6 +756,177 @@ class QuickSettingViewController: NSViewController, NSTableViewDataSource, NSTab
       item.representedObject = option.code
       popup.menu?.addItem(item)
     }
+  }
+
+  private func refreshAISubtitlePreparedLanguages() {
+    loadAISubtitlePreparedLanguageSnapshot()
+    aiSubtitleLanguageProbeTask?.cancel()
+    guard aiSubtitlePreparedSpeechCodes.isEmpty else { return }
+    aiSubtitleLanguageProbeGeneration += 1
+    let generation = aiSubtitleLanguageProbeGeneration
+    guard AISubtitleSystemSupport.isSupported, #available(macOS 26.0, *) else { return }
+
+    let sourceCodes = AISubtitleLanguageCatalog.sourceLanguages.compactMap(\.code)
+    aiSubtitleLanguageProbeTask = Task { [weak self] in
+      var installedCodes = Set<String>()
+      await withTaskGroup(of: (String, AISubtitleProviderStatus).self) { group in
+        for code in sourceCodes {
+          group.addTask {
+            let capability = await AppleAISubtitleTranscriber().probe(language: AISubtitleLanguage(code))
+            return (code, capability.status)
+          }
+        }
+        for await (code, status) in group where status == .available {
+          installedCodes.insert(code)
+        }
+      }
+      guard !Task.isCancelled else { return }
+      await MainActor.run {
+        guard let self, generation == self.aiSubtitleLanguageProbeGeneration else { return }
+        self.aiSubtitlePreparedSpeechCodes = installedCodes
+        AISubtitlePreparedLanguageStore().save(
+          speechLanguageCodes: installedCodes,
+          translationPairs: self.aiSubtitlePreparedTranslationPairs
+        )
+        self.updateAISubtitleTab()
+      }
+    }
+  }
+
+  private func loadAISubtitlePreparedLanguageSnapshot() {
+    let store = AISubtitlePreparedLanguageStore()
+    aiSubtitlePreparedSpeechCodes = store.speechLanguageCodes
+    aiSubtitlePreparedTranslationPairs = store.translationPairs
+  }
+
+  private func refreshAISubtitleLanguageMenus(preferredTargetCode: String?,
+                                              preferredSourceCode: String?) {
+    let sourceCandidates = AISubtitleLanguageCatalog.sourceLanguages.compactMap(\.code)
+    let targetCandidates = AISubtitleLanguageCatalog.targetLanguages.compactMap(\.code)
+    let preparedTargetCodes = AISubtitlePreparedLanguageStore.preparedTargetCodes(
+      sourceCandidates: Set(sourceCandidates),
+      targetCandidates: targetCandidates,
+      speechLanguageCodes: aiSubtitlePreparedSpeechCodes,
+      translationPairs: aiSubtitlePreparedTranslationPairs
+    )
+    let targetOptions = AISubtitleLanguageCatalog.targetLanguages.filter { option in
+      guard let targetCode = option.code else { return false }
+      return preparedTargetCodes.contains(targetCode)
+    }
+    replaceAISubtitleLanguagePopup(aiSubtitleTargetLanguagePopup,
+                                   options: targetOptions,
+                                   preferredCode: preferredTargetCode)
+
+    guard let targetCode = aiSubtitleTargetLanguagePopup.selectedItem?.representedObject as? String else {
+      refreshAISubtitleSourceLanguageChoices(availableCodes: [], preferredCode: nil)
+      return
+    }
+    let preparedSourceCodes = AISubtitlePreparedLanguageStore.preparedSourceCodes(
+      for: targetCode,
+      sourceCandidates: sourceCandidates,
+      speechLanguageCodes: aiSubtitlePreparedSpeechCodes,
+      translationPairs: aiSubtitlePreparedTranslationPairs
+    )
+    refreshAISubtitleSourceLanguageChoices(availableCodes: preparedSourceCodes,
+                                           preferredCode: preferredSourceCode)
+  }
+
+  private func refreshAISubtitleSourceLanguageChoices(availableCodes: Set<String>,
+                                                       preferredCode: String?) {
+    let historyStore = AISubtitleLanguageHistoryStore()
+    let suggestedCodes = historyStore.suggestedSourceLanguageCodes(
+      for: player.info.currentURL,
+      availableCodes: availableCodes,
+      selectedCode: preferredCode,
+      defaultCode: UserDefaults.standard.string(forKey: "aiSubtitle.sourceLanguage")
+    )
+    let selectedCode = preferredCode.flatMap { availableCodes.contains($0) ? $0 : nil }
+      ?? suggestedCodes.first
+    aiSubtitleSelectedSourceLanguageCode = selectedCode
+
+    aiSubtitleSourceLanguageStack.arrangedSubviews.forEach {
+      aiSubtitleSourceLanguageStack.removeArrangedSubview($0)
+      $0.removeFromSuperview()
+    }
+    aiSubtitleSourceLanguageButtons = suggestedCodes.map { code in
+      let button = NSButton(
+        radioButtonWithTitle: AISubtitleLanguageCatalog.localizedTitle(for: code),
+        target: self,
+        action: #selector(aiSubtitleSourceLanguageChanged(_:))
+      )
+      button.identifier = NSUserInterfaceItemIdentifier(code)
+      button.state = code == selectedCode ? .on : .off
+      button.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+      if let cell = button.cell as? NSButtonCell {
+        cell.lineBreakMode = .byTruncatingTail
+      }
+      aiSubtitleSourceLanguageStack.addArrangedSubview(button)
+      return button
+    }
+
+    aiSubtitleMoreLanguagesPopup.removeAllItems()
+    let moreItem = NSMenuItem(title: aiSubtitleLocalized(
+      "ai_subtitle.more_languages",
+      fallback: "More Languages…"
+    ), action: nil, keyEquivalent: "")
+    aiSubtitleMoreLanguagesPopup.menu?.addItem(moreItem)
+    AISubtitleLanguageCatalog.sourceLanguages.forEach { option in
+      guard let code = option.code,
+            availableCodes.contains(code),
+            !suggestedCodes.contains(code) else { return }
+      let item = NSMenuItem(title: option.title, action: nil, keyEquivalent: "")
+      item.representedObject = code
+      aiSubtitleMoreLanguagesPopup.menu?.addItem(item)
+    }
+    aiSubtitleMoreLanguagesPopup.selectItem(at: 0)
+    aiSubtitleMoreLanguagesPopup.isHidden = aiSubtitleMoreLanguagesPopup.numberOfItems <= 1
+    if !aiSubtitleMoreLanguagesPopup.isHidden {
+      aiSubtitleSourceLanguageStack.addArrangedSubview(aiSubtitleMoreLanguagesPopup)
+    }
+  }
+
+  private func replaceAISubtitleLanguagePopup(_ popup: NSPopUpButton,
+                                              options: [AISubtitleLanguageOption],
+                                              preferredCode: String?) {
+    popup.removeAllItems()
+    let placeholder = AISubtitleLanguageCatalog.sourceLanguages.first { $0.code == nil }
+    configureAISubtitleLanguagePopup(popup,
+                                     options: Array([placeholder].compactMap { $0 }) + options)
+    selectAISubtitleLanguage(preferredCode, in: popup)
+  }
+
+  private func isPreparedAISubtitleCombination(source: String, target: String) -> Bool {
+    AISubtitlePreparedLanguageStore.isPrepared(
+      source: source,
+      target: target,
+      speechLanguageCodes: aiSubtitlePreparedSpeechCodes,
+      translationPairs: aiSubtitlePreparedTranslationPairs
+    )
+  }
+
+  @objc private func aiSubtitleFeatureChanged(_ sender: NSSwitch) {
+    guard AISubtitleInitializationState().isComplete else {
+      sender.state = .off
+      updateAISubtitleTab()
+      return
+    }
+    let enabled = sender.state == .on
+    AISubtitleFeatureState().setEnabled(enabled)
+    if !enabled {
+      PlayerCore.playerCores.forEach { $0.stopAISubtitles() }
+    }
+    PlayerCore.playerCores.forEach {
+      NotificationCenter.default.post(name: .iinaAISubtitleStateDidChange, object: $0)
+    }
+    updateAISubtitleTab()
+  }
+
+  @objc private func aiSubtitleAutoModeChanged(_ sender: NSButton) {
+    AISubtitleAutoMode.current = AISubtitleAutoMode(rawValue: sender.tag) ?? .whenMissing
+    PlayerCore.playerCores.forEach {
+      NotificationCenter.default.post(name: .iinaAISubtitleStateDidChange, object: $0)
+    }
+    updateAISubtitleTab()
   }
 
   private func selectAISubtitleLanguage(_ code: String?, in popup: NSPopUpButton) {
@@ -652,19 +945,33 @@ class QuickSettingViewController: NSViewController, NSTableViewDataSource, NSTab
     popup.selectItem(at: exact ?? primary ?? 0)
   }
 
-  @objc private func aiSubtitleAutoModeChanged(_ sender: NSPopUpButton) {
-    AISubtitleAutoMode.current = AISubtitleAutoMode(rawValue: sender.indexOfSelectedItem) ?? .whenMissing
-  }
-
   @objc private func aiSubtitleLanguageChanged(_ sender: NSPopUpButton) {
-    let key = sender === aiSubtitleSourceLanguagePopup
-      ? "aiSubtitle.sourceLanguage"
-      : "aiSubtitle.targetLanguage"
+    let key = "aiSubtitle.targetLanguage"
     if let code = sender.selectedItem?.representedObject as? String {
       UserDefaults.standard.set(code, forKey: key)
     } else {
       UserDefaults.standard.removeObject(forKey: key)
     }
+    if let targetCode = sender.selectedItem?.representedObject as? String,
+       let sourceCode = UserDefaults.standard.string(forKey: "aiSubtitle.sourceLanguage"),
+       !isPreparedAISubtitleCombination(source: sourceCode, target: targetCode) {
+      UserDefaults.standard.removeObject(forKey: "aiSubtitle.sourceLanguage")
+    } else if sender.selectedItem?.representedObject == nil {
+      UserDefaults.standard.removeObject(forKey: "aiSubtitle.sourceLanguage")
+    }
+    aiSubtitleSelectedSourceLanguageCode = nil
+    updateAISubtitleTab()
+  }
+
+  @objc private func aiSubtitleSourceLanguageChanged(_ sender: NSButton) {
+    guard let code = sender.identifier?.rawValue else { return }
+    aiSubtitleSelectedSourceLanguageCode = code
+    updateAISubtitleTab()
+  }
+
+  @objc private func aiSubtitleMoreLanguageChanged(_ sender: NSPopUpButton) {
+    guard let code = sender.selectedItem?.representedObject as? String else { return }
+    aiSubtitleSelectedSourceLanguageCode = code
     updateAISubtitleTab()
   }
 
@@ -673,6 +980,9 @@ class QuickSettingViewController: NSViewController, NSTableViewDataSource, NSTab
   }
 
   @objc private func generateAISubtitles(_ sender: NSButton) {
+    if let sourceCode = aiSubtitleSelectedSourceLanguageCode {
+      player.rememberAISubtitleSourceLanguageForCurrentMedia(sourceCode)
+    }
     player.generateAISubtitlesUsingSavedPreferences(
       showConfigurationIfNeeded: true,
       forceRegeneration: player.hasExportableAISubtitles
@@ -791,6 +1101,7 @@ class QuickSettingViewController: NSViewController, NSTableViewDataSource, NSTab
   }
 
   deinit {
+    aiSubtitleLanguageProbeTask?.cancel()
     observers.forEach {
       NotificationCenter.default.removeObserver($0)
     }
@@ -853,7 +1164,15 @@ class QuickSettingViewController: NSViewController, NSTableViewDataSource, NSTab
     if let currSub = player.info.currentTrack(.sub) {
       // FIXME: CollorWells cannot be disable?
       let enableTextSettings = !(currSub.isAssSub || currSub.isImageSub)
-      [subTextColorWell, subTextSizePopUp, subTextBgColorWell, subTextBorderColorWell, subTextBorderWidthPopUp, subTextFontBtn].forEach { $0.isEnabled = enableTextSettings }
+      let textStyleControls: [NSControl?] = [
+        subTextColorWell,
+        subTextSizePopUp,
+        subTextBgColorWell,
+        subTextBorderColorWell,
+        subTextBorderWidthPopUp,
+        subTextFontBtn
+      ]
+      textStyleControls.compactMap { $0 }.forEach { $0.isEnabled = enableTextSettings }
     }
 
     let isPrimary = (subSegmentedControl.selectedSegment == 0)
@@ -871,14 +1190,17 @@ class QuickSettingViewController: NSViewController, NSTableViewDataSource, NSTab
     let displaySubScale = Utility.toDisplaySubScale(fromRealSubScale: currSubScale)
     subScaleSlider.doubleValue = displaySubScale + (displaySubScale > 0 ? -1 : 1)
 
-    let fontSize = player.mpv.getInt(MPVOption.Subtitles.subFontSize)
-    subTextSizePopUp.selectItem(withTitle: fontSize.description)
+    if let textSizePopup = subTextSizePopUp,
+       let borderWidthPopup = subTextBorderWidthPopUp {
+      let fontSize = player.mpv.getInt(MPVOption.Subtitles.subFontSize)
+      textSizePopup.selectItem(withTitle: fontSize.description)
 
-    let borderWidth = player.mpv.getDouble(MPVOption.Subtitles.subBorderSize)
-    subTextBorderWidthPopUp.selectItem(at: -1)
-    subTextBorderWidthPopUp.itemArray.forEach { item in
-      if borderWidth == Double(item.title) {
-        subTextBorderWidthPopUp.select(item)
+      let borderWidth = player.mpv.getDouble(MPVOption.Subtitles.subBorderSize)
+      borderWidthPopup.selectItem(at: -1)
+      borderWidthPopup.itemArray.forEach { item in
+        if borderWidth == Double(item.title) {
+          borderWidthPopup.select(item)
+        }
       }
     }
   }
@@ -913,6 +1235,11 @@ class QuickSettingViewController: NSViewController, NSTableViewDataSource, NSTab
     tabView.selectTabViewItem(at: tab.buttonTag)
     updateTabActiveStatus()
     reload()
+    mainWindow.refreshAISubtitleLanguageConfirmationHUD()
+    if tab == .aiSubtitle {
+      tabView.layoutSubtreeIfNeeded()
+      scheduleAISubtitleContentLayout()
+    }
   }
 
   private func updateTabActiveStatus() {
@@ -1040,6 +1367,10 @@ class QuickSettingViewController: NSViewController, NSTableViewDataSource, NSTab
 
   @IBAction func tabBtnAction(_ sender: NSButton) {
     switchToTab(.init(buttonTag: sender.tag))
+  }
+
+  @IBAction func aiSubtitleTabBtnAction(_ sender: NSButton) {
+    switchToTab(.aiSubtitle)
   }
 
   // MARK: Video tab

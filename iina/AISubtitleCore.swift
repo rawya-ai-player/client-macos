@@ -39,6 +39,7 @@ enum AISubtitleAutoMode: Int, Codable, CaseIterable {
   case always = 0
   case whenMissing = 1
   case manual = 2
+  case confirmLanguage = 3
 
   static var current: AISubtitleAutoMode {
     get {
@@ -57,9 +58,13 @@ enum AISubtitleAutoMode: Int, Codable, CaseIterable {
       return true
     case .whenMissing:
       return !hasSubtitleTracks
-    case .manual:
+    case .confirmLanguage, .manual:
       return false
     }
+  }
+
+  var requiresLanguageConfirmation: Bool {
+    self == .confirmLanguage
   }
 }
 
@@ -84,7 +89,6 @@ struct AISubtitleFeatureState {
   var systemSupported = AISubtitleSystemSupport.isSupported
 
   var isEnabled: Bool {
-    guard systemSupported else { return false }
     if userDefaults.object(forKey: Self.enabledDefaultsKey) != nil {
       return userDefaults.bool(forKey: Self.enabledDefaultsKey)
     }
@@ -116,27 +120,34 @@ struct AISubtitleInitializationState {
   }
 
   var isComplete: Bool {
-    guard systemSupported,
-          let provider = configuredProvider,
-          provider != .whisperCpp,
-          isEnabled(provider) else { return false }
+    guard let provider = configuredProvider else { return false }
+    return isPrepared(provider)
+  }
+
+  func isPrepared(_ provider: AISubtitleProviderID) -> Bool {
+    guard enabledProviderRawValues.contains(provider.rawValue) else { return false }
     switch provider {
     case .apple:
-      return true
-    case .openAI, .aliyun:
-      return credentialChecker.hasCredential(for: provider)
-        && consentChecker.hasConsent(for: provider)
-    case .whisperCpp:
+      return systemSupported
+    case .openAI, .aliyun, .whisperCpp:
+      // Direct third-party cloud configuration is no longer a user-facing
+      // Rawya plan. The future Rawya remote API will provide its own readiness.
       return false
     }
   }
 
-  func markComplete(provider: AISubtitleProviderID) {
-    guard provider != .whisperCpp else { return }
+  func markPrepared(provider: AISubtitleProviderID) {
+    guard provider == .apple else { return }
     var enabledProviders = enabledProviderRawValues
     enabledProviders.insert(provider.rawValue)
     userDefaults.set(Array(enabledProviders).sorted(), forKey: Self.enabledProvidersDefaultsKey)
+  }
+
+  func markComplete(provider: AISubtitleProviderID) {
+    guard provider == .apple else { return }
+    markPrepared(provider: provider)
     userDefaults.set(provider.rawValue, forKey: Self.providerDefaultsKey)
+    userDefaults.set(provider.preferenceIndex, forKey: "aiSubtitle.provider")
     userDefaults.set(true, forKey: Self.completedDefaultsKey)
     AISubtitleFeatureState(userDefaults: userDefaults,
                            systemSupported: systemSupported).setEnabled(true)
@@ -159,12 +170,8 @@ struct AISubtitleInitializationState {
   }
 
   private var configuredProvider: AISubtitleProviderID? {
-    guard userDefaults.object(forKey: "aiSubtitle.provider") != nil else { return .apple }
+    guard userDefaults.object(forKey: "aiSubtitle.provider") != nil else { return nil }
     return AISubtitleProviderID(preferenceIndex: userDefaults.integer(forKey: "aiSubtitle.provider"))
-  }
-
-  private func isEnabled(_ provider: AISubtitleProviderID) -> Bool {
-    enabledProviderRawValues.contains(provider.rawValue)
   }
 
   private var enabledProviderRawValues: Set<String> {
@@ -224,6 +231,15 @@ extension AISubtitleProviderID {
       return false
     }
   }
+
+  var preferenceIndex: Int {
+    switch self {
+    case .apple: return 0
+    case .openAI: return 1
+    case .aliyun: return 2
+    case .whisperCpp: return 3
+    }
+  }
 }
 
 enum AISubtitleProviderModelCatalog {
@@ -232,7 +248,7 @@ enum AISubtitleProviderModelCatalog {
     guard let providerID = providerID else { return nil }
     switch (providerID, role) {
     case (.apple, .transcriber):
-      return "apple-speech-transcriber-v1"
+      return "apple-speech-transcriber-v2"
     case (.apple, .translator):
       return "apple-translation-system"
     case (.openAI, .transcriber):
@@ -337,6 +353,163 @@ enum AISubtitleLanguageCatalog {
   ]
 
   static let targetLanguages = Array(sourceLanguages.dropFirst())
+
+  static func localizedTitle(for code: String) -> String {
+    if let option = sourceLanguages.first(where: { $0.code == code }) {
+      return option.title
+    }
+    let interfaceLanguage = Bundle.main.preferredLocalizations.first ?? Locale.current.identifier
+    return Locale(identifier: interfaceLanguage).localizedString(forIdentifier: code) ?? code
+  }
+}
+
+struct AISubtitlePreparedLanguageStore {
+  static let speechLanguagesDefaultsKey = "aiSubtitle.preparedSpeechLanguages"
+  static let translationPairsDefaultsKey = "aiSubtitle.preparedTranslationPairs"
+
+  var userDefaults: UserDefaults = .standard
+
+  var speechLanguageCodes: Set<String> {
+    Set(userDefaults.stringArray(forKey: Self.speechLanguagesDefaultsKey) ?? [])
+  }
+
+  var translationPairs: Set<String> {
+    Set(userDefaults.stringArray(forKey: Self.translationPairsDefaultsKey) ?? [])
+  }
+
+  func save(speechLanguageCodes: Set<String>, translationPairs: Set<String>) {
+    userDefaults.set(Array(speechLanguageCodes).sorted(),
+                     forKey: Self.speechLanguagesDefaultsKey)
+    userDefaults.set(Array(translationPairs).sorted(),
+                     forKey: Self.translationPairsDefaultsKey)
+  }
+
+  static func pairKey(source: String, target: String) -> String {
+    "\(source)|\(target)"
+  }
+
+  static func isPrepared(source: String,
+                         target: String,
+                         speechLanguageCodes: Set<String>,
+                         translationPairs: Set<String>) -> Bool {
+    guard speechLanguageCodes.contains(source) else { return false }
+    if AISubtitleLanguage(source).isEquivalent(to: AISubtitleLanguage(target)) {
+      return true
+    }
+    return translationPairs.contains(pairKey(source: source, target: target))
+  }
+
+  static func preparedTargetCodes(sourceCandidates: Set<String>,
+                                  targetCandidates: [String],
+                                  speechLanguageCodes: Set<String>,
+                                  translationPairs: Set<String>) -> Set<String> {
+    Set(targetCandidates.filter { target in
+      sourceCandidates.contains { source in
+        isPrepared(source: source,
+                   target: target,
+                   speechLanguageCodes: speechLanguageCodes,
+                   translationPairs: translationPairs)
+      }
+    })
+  }
+
+  static func preparedSourceCodes(for target: String,
+                                  sourceCandidates: [String],
+                                  speechLanguageCodes: Set<String>,
+                                  translationPairs: Set<String>) -> Set<String> {
+    Set(sourceCandidates.filter { source in
+      isPrepared(source: source,
+                 target: target,
+                 speechLanguageCodes: speechLanguageCodes,
+                 translationPairs: translationPairs)
+    })
+  }
+}
+
+struct AISubtitleLanguageHistoryStore {
+  static let recentSourceLanguagesDefaultsKey = "aiSubtitle.recentSourceLanguages"
+  static let mediaSourceLanguagesDefaultsKey = "aiSubtitle.mediaSourceLanguages"
+  static let mediaSourceLanguageOrderDefaultsKey = "aiSubtitle.mediaSourceLanguageOrder"
+
+  private static let maximumRecentLanguageCount = 12
+  private static let maximumRememberedMediaCount = 100
+
+  var userDefaults: UserDefaults = .standard
+
+  var recentSourceLanguageCodes: [String] {
+    userDefaults.stringArray(forKey: Self.recentSourceLanguagesDefaultsKey) ?? []
+  }
+
+  func sourceLanguageCode(for mediaURL: URL) -> String? {
+    mediaSourceLanguages[mediaKey(for: mediaURL)]
+  }
+
+  func suggestedSourceLanguageCodes(for mediaURL: URL?,
+                                    availableCodes: Set<String>,
+                                    selectedCode: String? = nil,
+                                    defaultCode: String? = nil,
+                                    limit: Int = 3) -> [String] {
+    guard limit > 0 else { return [] }
+    var suggestions: [String] = []
+    func append(_ code: String?) {
+      guard let code,
+            availableCodes.contains(code),
+            !suggestions.contains(code),
+            suggestions.count < limit else { return }
+      suggestions.append(code)
+    }
+
+    if let mediaURL {
+      append(sourceLanguageCode(for: mediaURL))
+    }
+    recentSourceLanguageCodes.forEach { append($0) }
+    append(defaultCode)
+    AISubtitleLanguageCatalog.sourceLanguages.forEach { append($0.code) }
+    if let selectedCode,
+       availableCodes.contains(selectedCode),
+       !suggestions.contains(selectedCode) {
+      if suggestions.count < limit {
+        suggestions.append(selectedCode)
+      } else if !suggestions.isEmpty {
+        suggestions[suggestions.index(before: suggestions.endIndex)] = selectedCode
+      }
+    }
+    return suggestions
+  }
+
+  func record(sourceLanguageCode: String, for mediaURL: URL) {
+    var recentCodes = recentSourceLanguageCodes.filter { $0 != sourceLanguageCode }
+    recentCodes.insert(sourceLanguageCode, at: 0)
+    userDefaults.set(Array(recentCodes.prefix(Self.maximumRecentLanguageCount)),
+                     forKey: Self.recentSourceLanguagesDefaultsKey)
+
+    let key = mediaKey(for: mediaURL)
+    var selections = mediaSourceLanguages
+    selections[key] = sourceLanguageCode
+    var order = userDefaults.stringArray(forKey: Self.mediaSourceLanguageOrderDefaultsKey) ?? []
+    order.removeAll { $0 == key }
+    order.insert(key, at: 0)
+    if order.count > Self.maximumRememberedMediaCount {
+      let expiredKeys = order.dropFirst(Self.maximumRememberedMediaCount)
+      expiredKeys.forEach { selections.removeValue(forKey: $0) }
+      order = Array(order.prefix(Self.maximumRememberedMediaCount))
+    }
+    userDefaults.set(selections, forKey: Self.mediaSourceLanguagesDefaultsKey)
+    userDefaults.set(order, forKey: Self.mediaSourceLanguageOrderDefaultsKey)
+  }
+
+  private var mediaSourceLanguages: [String: String] {
+    let values = userDefaults.dictionary(forKey: Self.mediaSourceLanguagesDefaultsKey) ?? [:]
+    return values.reduce(into: [:]) { result, entry in
+      if let code = entry.value as? String {
+        result[entry.key] = code
+      }
+    }
+  }
+
+  private func mediaKey(for url: URL) -> String {
+    url.isFileURL ? url.standardizedFileURL.absoluteString : url.absoluteString
+  }
 }
 
 enum AISubtitleSuggestionPolicy {

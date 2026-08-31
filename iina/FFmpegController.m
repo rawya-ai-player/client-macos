@@ -31,6 +31,7 @@
 
 #define THUMB_COUNT_DEFAULT 100
 #define AI_SUBTITLE_SAMPLE_RATE 16000
+#define AI_SUBTITLE_MAX_SKIPPED_INVALID_AUDIO_PACKETS 32
 
 static NSString * const FFmpegAudioErrorDomain = @"app.rawya.player.ffmpeg-audio";
 
@@ -52,6 +53,16 @@ static int FFmpegAudioInterruptCallback(void *opaque)
   if (!opaque) return 0;
   BOOL (^shouldCancel)(void) = (__bridge BOOL (^)(void))opaque;
   return shouldCancel() ? 1 : 0;
+}
+
+static BOOL FFmpegCanSkipInvalidAudioPacket(int result, unsigned int *skippedCount)
+{
+  if (result != AVERROR_INVALIDDATA ||
+      *skippedCount >= AI_SUBTITLE_MAX_SKIPPED_INVALID_AUDIO_PACKETS) {
+    return NO;
+  }
+  *skippedCount += 1;
+  return YES;
 }
 
 static void FFmpegSetAudioError(NSError **error, FFmpegAudioErrorCode code, NSString *message)
@@ -108,6 +119,26 @@ typedef struct {
   uint64_t bytesWritten;
 } FFmpegAudioExtractionContext;
 
+static int FFmpegWriteAudioSilence(FFmpegAudioExtractionContext *context,
+                                   double gapStart,
+                                   double gapEnd)
+{
+  const double clippedStart = MAX(gapStart, context->requestedStart);
+  const double clippedEnd = MIN(gapEnd, context->requestedEnd);
+  if (clippedEnd <= clippedStart) return 0;
+
+  int64_t remainingSamples = llround((clippedEnd - clippedStart) * AI_SUBTITLE_SAMPLE_RATE);
+  static const int16_t silence[4096] = {0};
+  while (remainingSamples > 0) {
+    const size_t samplesToWrite = (size_t)MIN(remainingSamples, (int64_t)4096);
+    const size_t written = fwrite(silence, sizeof(int16_t), samplesToWrite, context->output);
+    context->bytesWritten += written * sizeof(int16_t);
+    if (written != samplesToWrite) return AVERROR(EIO);
+    remainingSamples -= written;
+  }
+  return 0;
+}
+
 /// Returns 1 when the requested end time has been reached, 0 to continue, or a negative FFmpeg error.
 static int FFmpegWriteAudioFrame(AVFrame *frame,
                                 AVStream *stream,
@@ -120,8 +151,17 @@ static int FFmpegWriteAudioFrame(AVFrame *frame,
   const int inputSampleRate = frame->sample_rate > 0 ? frame->sample_rate : stream->codecpar->sample_rate;
   if (inputSampleRate <= 0) return AVERROR(EINVAL);
   const double frameEnd = frameStart + (double)frame->nb_samples / inputSampleRate;
-  context->timestampCursor = frameEnd;
-  if (frameEnd <= context->requestedStart) return 0;
+  if (frameEnd <= context->requestedStart) {
+    context->timestampCursor = MAX(context->timestampCursor, frameEnd);
+    return 0;
+  }
+  if (frameStart > context->timestampCursor) {
+    const int silenceResult = FFmpegWriteAudioSilence(context,
+                                                      context->timestampCursor,
+                                                      frameStart);
+    if (silenceResult < 0) return silenceResult;
+  }
+  context->timestampCursor = MAX(context->timestampCursor, frameEnd);
   if (frameStart >= context->requestedEnd) return 1;
 
   const int maximumOutputSamples = (int)av_rescale_rnd(
@@ -751,6 +791,7 @@ return -1;\
     .bytesWritten = 0
   };
   BOOL reachedEnd = NO;
+  unsigned int skippedInvalidPackets = 0;
   while (!reachedEnd && av_read_frame(formatContext, packet) >= 0) {
     if (packet->stream_index == selectedStreamIndex) {
       while ((result = avcodec_send_packet(codecContext, packet)) == AVERROR(EAGAIN)) {
@@ -760,6 +801,12 @@ return -1;\
       if (result < 0 || reachedEnd) {
         av_packet_unref(packet);
         if (result < 0) {
+          if (FFmpegCanSkipInvalidAudioPacket(result, &skippedInvalidPackets)) {
+            LOG_WARN(@"Skipped damaged audio packet %u while extracting AI subtitle audio",
+                     skippedInvalidPackets);
+            continue;
+          }
+          failureCode = FFmpegAudioErrorDecoder;
           failureMessage = [NSString stringWithFormat:@"Audio decoding failed: %s", av_err2str(result)];
           goto cleanup;
         }
@@ -767,6 +814,13 @@ return -1;\
       }
       result = FFmpegDrainAudioDecoder(codecContext, frame, audioStream, &extraction, &reachedEnd);
       if (result < 0) {
+        if (FFmpegCanSkipInvalidAudioPacket(result, &skippedInvalidPackets)) {
+          LOG_WARN(@"Skipped damaged audio packet %u while extracting AI subtitle audio",
+                   skippedInvalidPackets);
+          av_packet_unref(packet);
+          continue;
+        }
+        failureCode = FFmpegAudioErrorDecoder;
         failureMessage = [NSString stringWithFormat:@"Audio decoding failed: %s", av_err2str(result)];
         goto cleanup;
       }
@@ -811,6 +865,9 @@ cleanup:
   avcodec_free_context(&codecContext);
   avformat_close_input(&formatContext);
   if (!succeeded) {
+    if (failureCode != FFmpegAudioErrorCanceled) {
+      LOG_ERROR(@"AI subtitle audio extraction failed: %@", failureMessage ?: @"Unknown error");
+    }
     [[NSFileManager defaultManager] removeItemAtURL:outputURL error:nil];
     FFmpegSetAudioError(error, failureCode, failureMessage ?: @"Audio extraction failed.");
   }
