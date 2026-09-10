@@ -10,7 +10,17 @@ enum Utility {
 final class KeychainAccess {
   struct ServiceName: RawRepresentable {
     var rawValue: String
-    init(rawValue: String) { self.rawValue = rawValue }
+    var legacyRawValues: [String]
+
+    init(rawValue: String) {
+      self.rawValue = rawValue
+      legacyRawValues = []
+    }
+
+    init(rawValue: String, legacyRawValues: [String]) {
+      self.rawValue = rawValue
+      self.legacyRawValues = legacyRawValues
+    }
   }
 
   static func read(username: String?, forService: ServiceName) throws -> (username: String, password: String) {

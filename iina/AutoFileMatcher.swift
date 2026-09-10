@@ -24,6 +24,7 @@ class AutoFileMatcher {
   private var filesGroupedByMediaType: [MPVTrack.TrackType: [FileInfo]] = [.video: [], .audio: [], .sub: []]
   private var videosGroupedBySeries: [String: [FileInfo]] = [:]
   private var subtitles: [FileInfo] = []
+  private var aiSubtitles: [FileInfo] = []
   private var subsGroupedBySeries: [String: [FileInfo]] = [:]
   private var unmatchedVideos: [FileInfo] = []
   
@@ -42,6 +43,12 @@ class AutoFileMatcher {
   /// checkTicket
   private func checkTicket() throws {
     try player.checkTicket(ticket)
+  }
+
+  private func aiSubtitleMediaName(_ subtitle: FileInfo) -> String? {
+    guard subtitle.ext.lowercased() == "srt",
+          let marker = subtitle.filename.range(of: ".rawya-ai.", options: .backwards) else { return nil }
+    return String(subtitle.filename[..<marker.lowerBound])
   }
 
   private func getAllMediaFiles() throws {
@@ -203,6 +210,14 @@ class AutoFileMatcher {
       var matchedSubs = Set<FileInfo>()
       log("Matching for \(video.filename)")
 
+      // AI sidecars have a known owner. Keep them out of series and edit-distance matching.
+      for sub in aiSubtitles where aiSubtitleMediaName(sub) == video.filename {
+        try checkTicket()
+        player.info.$matchedSubs.withLock { $0[video.path, default: []].append(sub.url) }
+        sub.isMatched = true
+        matchedSubs.insert(sub)
+      }
+
       // match video and sub if both are the closest one to each other
       if subAutoLoadOption.shouldLoadSubsMatchedByIINA() {
         log("Matching by Rawya...", level: .verbose)
@@ -346,6 +361,8 @@ class AutoFileMatcher {
       // get all possible subtitles
       subtitles = try getAllPossibleSubs()
       player.info.currentSubsInfo = subtitles
+      aiSubtitles = subtitles.filter { aiSubtitleMediaName($0) != nil }
+      subtitles.removeAll { aiSubtitleMediaName($0) != nil }
 
       // add files to playlist
       if shouldAutoLoad {

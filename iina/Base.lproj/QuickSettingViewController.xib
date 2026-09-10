@@ -23,6 +23,7 @@
                 <outlet property="audioEqSlider8" destination="JaQ-EH-K1U" id="NZP-1Y-Q4q"/>
                 <outlet property="audioEqSlider9" destination="gbd-xf-hGS" id="yjy-wE-LJd"/>
                 <outlet property="audioTabBtn" destination="3Fk-ey-FhK" id="I1P-Dg-gtv"/>
+                <outlet property="aiSubtitleTabBtn" destination="AI1-Tb-Btn" id="AI1-Tb-Out"/>
                 <outlet property="audioTabScrollView" destination="wXn-sV-AmG" id="hwa-q0-ZFH"/>
                 <outlet property="audioTableView" destination="FLg-2m-Zaq" id="rId-Io-Y2B"/>
                 <outlet property="brightnessSlider" destination="eFW-a3-kWx" id="BTl-mg-ShV"/>
@@ -127,8 +128,20 @@
                                 <action selector="tabBtnAction:" target="-2" id="IEz-WA-p4g"/>
                             </connections>
                         </button>
+                        <button tag="3" imageHugsTitle="YES" horizontalHuggingPriority="253" verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="AI1-Tb-Btn" userLabel="AI Subtitles Tab Button">
+                            <rect key="frame" x="240" y="0.0" width="80" height="48"/>
+                            <buttonCell key="cell" type="square" title="AI" bezelStyle="shadowlessSquare" image="tab_sub" imagePosition="leading" alignment="center" imageScaling="proportionallyDown" inset="2" id="AI1-Tb-Cell">
+                                <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
+                                <font key="font" metaFont="systemBold"/>
+                            </buttonCell>
+                            <connections>
+                                <action selector="aiSubtitleTabBtnAction:" target="-2" id="AI1-Tb-Act"/>
+                            </connections>
+                        </button>
                     </subviews>
                     <constraints>
+                        <constraint firstItem="AI1-Tb-Btn" firstAttribute="top" secondItem="dNi-Ib-2vd" secondAttribute="top" id="AI1-Tb-Top"/>
+                        <constraint firstAttribute="bottom" secondItem="AI1-Tb-Btn" secondAttribute="bottom" id="AI1-Tb-Bot"/>
                         <constraint firstItem="3Fk-ey-FhK" firstAttribute="top" secondItem="dNi-Ib-2vd" secondAttribute="top" id="4LK-un-GWd"/>
                         <constraint firstAttribute="bottom" secondItem="Ma8-6g-tVw" secondAttribute="bottom" id="HNL-01-U01"/>
                         <constraint firstAttribute="height" constant="48" identifier="tabHeightConstraint" id="OsF-5u-ZcS"/>
@@ -141,8 +154,10 @@
                         <integer value="1000"/>
                         <integer value="1000"/>
                         <integer value="1000"/>
+                        <integer value="1000"/>
                     </visibilityPriorities>
                     <customSpacing>
+                        <real value="3.4028234663852886e+38"/>
                         <real value="3.4028234663852886e+38"/>
                         <real value="3.4028234663852886e+38"/>
                         <real value="3.4028234663852886e+38"/>
@@ -170,6 +185,12 @@
                         <tabViewItem label="Subtitle" identifier="" id="jND-MZ-sKB" userLabel="SubtitlesTab Tab View Item">
                             <view key="view" id="MrM-2b-7ob" userLabel="SubtitlesTab View">
                                 <rect key="frame" x="0.0" y="0.0" width="377" height="863"/>
+                                <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                            </view>
+                        </tabViewItem>
+                        <tabViewItem label="AI Subtitles" identifier="aiSubtitle" id="AI1-TV-Item" userLabel="AI Subtitles Tab View Item">
+                            <view key="view" id="AI1-TV-View" userLabel="AI Subtitles Tab View">
+                                <rect key="frame" x="0.0" y="0.0" width="360" height="218"/>
                                 <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                             </view>
                         </tabViewItem>

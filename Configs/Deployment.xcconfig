@@ -7,8 +7,21 @@
 //
 
 CODE_SIGN_IDENTITY = -
+// Baseline only. Supported local and distribution build entry points allocate
+// one monotonically increasing CURRENT_PROJECT_VERSION per source snapshot.
 CURRENT_PROJECT_VERSION = 1005
 DEVELOPMENT_TEAM = W684N2R45F
 MACOSX_DEPLOYMENT_TARGET = 10.15
 MACOSX_DEPLOYMENT_TARGET[arch=arm64] = 12
 MARKETING_VERSION = 1.0.0
+
+// Debug builds are an independently installable validation app. Release keeps
+// the production identity used for Developer ID distribution.
+RAWYA_APP_NAME = Rawya
+RAWYA_APP_NAME[config=Debug] = Rawya Dev
+RAWYA_LOCALIZED_APP_NAME_ZH_HANS = 若雅
+RAWYA_LOCALIZED_APP_NAME_ZH_HANS[config=Debug] = 若雅开发版
+RAWYA_LOCALIZED_APP_NAME_ZH_HANT = 若雅
+RAWYA_LOCALIZED_APP_NAME_ZH_HANT[config=Debug] = 若雅開發版
+RAWYA_BUNDLE_ID_SUFFIX =
+RAWYA_BUNDLE_ID_SUFFIX[config=Debug] = .dev
