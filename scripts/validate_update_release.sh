@@ -110,6 +110,13 @@ fi
 
 appcast_path="${release_dir}/${appcast_name}"
 xmllint --noout "$appcast_path"
+appcast_release_notes="$(xmllint --xpath \
+  "string(((//item)[1]/description)[1])" \
+  "$appcast_path")"
+if [[ "$appcast_release_notes" == *"<details"* || "$appcast_release_notes" == *"<summary"* ]]; then
+  echo "Appcast release notes contain HTML unsupported by Sparkle Markdown rendering." >&2
+  exit 1
+fi
 feed_signature_block="$(xmllint --xpath \
   "string((//comment()[contains(., 'sparkle-signatures:')])[1])" \
   "$appcast_path")"
