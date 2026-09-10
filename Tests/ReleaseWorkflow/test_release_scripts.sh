@@ -43,6 +43,7 @@ write_fixture() {
   <channel>
     <item>
       <title>Rawya ${version}</title>
+      <description sparkle:format="markdown"><![CDATA[# Release notes]]></description>
       <enclosure
         url="https://github.com/rawya-ai-player/client-macos/releases/download/${tag}/${zip_name}"
         length="${zip_length}"
@@ -65,6 +66,7 @@ EOF
   <channel>
     <item>
       <title>Rawya ${version}</title>
+      <description sparkle:format="markdown"><![CDATA[# Release notes]]></description>
       <sparkle:version>${build}</sparkle:version>
       <sparkle:shortVersionString>${version}</sparkle:shortVersionString>
       <enclosure
@@ -116,3 +118,14 @@ write_fixture
 tag="rawya-v${version}"
 write_fixture element
 "${repo_root}/scripts/validate_update_release.sh" "$fixture_dir"
+
+sed 's/# Release notes/<details>/' "${fixture_dir}/appcast.xml" > "${fixture_dir}/appcast.tmp"
+mv "${fixture_dir}/appcast.tmp" "${fixture_dir}/appcast.xml"
+(
+  cd "$fixture_dir"
+  shasum -a 256 "$zip_name" "$dmg_name" "$source_name" release-notes.md appcast.xml > SHA256SUMS
+)
+if "${repo_root}/scripts/validate_update_release.sh" "$fixture_dir" >/dev/null 2>&1; then
+  echo "Appcast validation accepted release notes with unsupported HTML." >&2
+  exit 1
+fi
