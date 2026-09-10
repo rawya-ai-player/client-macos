@@ -22,9 +22,6 @@ jobs:
       - name: Test release tooling
         run: ./Tests/ReleaseWorkflow/test_release_scripts.sh
 
-      - name: Test release tooling
-        run: ./Tests/ReleaseWorkflow/test_release_scripts.sh
-
       - name: Install pinned build dependencies
         run: ./scripts/download_pinned_build_dependencies.sh
 
