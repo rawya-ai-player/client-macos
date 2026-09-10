@@ -145,7 +145,17 @@ class MainWindowController: PlayerWindowController {
 
   private let aiSubtitleProgressHUD = NSVisualEffectView()
   private let aiSubtitleProgressHUDRing = AISubtitleProgressRingView()
+  private let aiSubtitleProgressHUDLanguageLabel = NSTextField(labelWithString: "")
   private var aiSubtitleProgressHUDHideWorkItem: DispatchWorkItem?
+  private let aiSubtitleLanguageConfirmationHUD = NSVisualEffectView()
+  private let aiSubtitleConfirmationTargetValue = NSTextField(labelWithString: "")
+  private let aiSubtitleConfirmationSourceStack = NSStackView()
+  private let aiSubtitleConfirmationMoreLanguagesPopup = NSPopUpButton()
+  private let aiSubtitleConfirmationButton = NSButton()
+  private var aiSubtitleConfirmationSourceButtons: [NSButton] = []
+  private var aiSubtitleConfirmationSourceCode: String?
+  private var aiSubtitleConfirmationMediaURL: URL?
+  private var aiSubtitleConfirmationWorkItem: DispatchWorkItem?
 
   /** The quick setting sidebar (video, audio, subtitles). */
   lazy var quickSettingView: QuickSettingViewController = {
@@ -645,6 +655,7 @@ class MainWindowController: PlayerWindowController {
     cv.autoresizesSubviews = false
     addVideoViewToWindow()
     setupAISubtitleProgressHUD(in: cv)
+    setupAISubtitleLanguageConfirmationHUD(in: cv)
 
     // gesture recognizer
     cv.addGestureRecognizer(magnificationGestureRecognizer)
@@ -703,10 +714,12 @@ class MainWindowController: PlayerWindowController {
 
     addObserver(to: .default, forName: .iinaFileLoaded, object: player) { [unowned self] _ in
       self.quickSettingView.reload()
+      self.scheduleAISubtitleLanguageConfirmationHUDUpdate()
     }
 
     addObserver(to: .default, forName: .iinaAISubtitleStateDidChange, object: player) { [weak self] _ in
       self?.updateAISubtitleProgressHUD()
+      self?.updateAISubtitleLanguageConfirmationHUD()
     }
 
     addObserver(to: .default, forName: NSApplication.didChangeScreenParametersNotification) { [unowned self] _ in
@@ -780,7 +793,7 @@ class MainWindowController: PlayerWindowController {
     aiSubtitleProgressHUD.state = .active
     aiSubtitleProgressHUD.alphaValue = 0.82
     aiSubtitleProgressHUD.wantsLayer = true
-    aiSubtitleProgressHUD.layer?.cornerRadius = 30
+    aiSubtitleProgressHUD.layer?.cornerRadius = 8
     aiSubtitleProgressHUD.translatesAutoresizingMaskIntoConstraints = false
     aiSubtitleProgressHUD.isHidden = true
     aiSubtitleProgressHUD.setAccessibilityLabel(aiSubtitleLocalized("ai_subtitle.title",
@@ -793,6 +806,16 @@ class MainWindowController: PlayerWindowController {
     aiSubtitleProgressHUDRing.translatesAutoresizingMaskIntoConstraints = false
     aiSubtitleProgressHUD.addSubview(aiSubtitleProgressHUDRing)
 
+    aiSubtitleProgressHUDLanguageLabel.font = NSFont.systemFont(ofSize: NSFont.systemFontSize,
+                                                                weight: .medium)
+    aiSubtitleProgressHUDLanguageLabel.textColor = .white
+    aiSubtitleProgressHUDLanguageLabel.maximumNumberOfLines = 1
+    aiSubtitleProgressHUDLanguageLabel.lineBreakMode = .byTruncatingTail
+    aiSubtitleProgressHUDLanguageLabel.translatesAutoresizingMaskIntoConstraints = false
+    aiSubtitleProgressHUDLanguageLabel.setContentCompressionResistancePriority(.defaultLow,
+                                                                                for: .horizontal)
+    aiSubtitleProgressHUD.addSubview(aiSubtitleProgressHUDLanguageLabel)
+
     contentView.addSubview(aiSubtitleProgressHUD, positioned: .above, relativeTo: nil)
     let preferredTrailingConstraint = aiSubtitleProgressHUD.trailingAnchor
       .constraint(equalTo: contentView.trailingAnchor, constant: -16)
@@ -804,13 +827,222 @@ class MainWindowController: PlayerWindowController {
                                                        constant: -12),
       aiSubtitleProgressHUD.leadingAnchor.constraint(greaterThanOrEqualTo: contentView.leadingAnchor,
                                                       constant: 16),
-      aiSubtitleProgressHUD.widthAnchor.constraint(equalToConstant: 60),
-      aiSubtitleProgressHUD.heightAnchor.constraint(equalToConstant: 60),
-      aiSubtitleProgressHUDRing.centerXAnchor.constraint(equalTo: aiSubtitleProgressHUD.centerXAnchor),
+      aiSubtitleProgressHUD.widthAnchor.constraint(equalToConstant: 232),
+      aiSubtitleProgressHUD.heightAnchor.constraint(equalToConstant: 64),
+      aiSubtitleProgressHUDRing.leadingAnchor.constraint(equalTo: aiSubtitleProgressHUD.leadingAnchor,
+                                                         constant: 8),
       aiSubtitleProgressHUDRing.centerYAnchor.constraint(equalTo: aiSubtitleProgressHUD.centerYAnchor),
       aiSubtitleProgressHUDRing.widthAnchor.constraint(equalToConstant: 50),
-      aiSubtitleProgressHUDRing.heightAnchor.constraint(equalToConstant: 50)
+      aiSubtitleProgressHUDRing.heightAnchor.constraint(equalToConstant: 50),
+      aiSubtitleProgressHUDLanguageLabel.leadingAnchor.constraint(equalTo: aiSubtitleProgressHUDRing.trailingAnchor,
+                                                                  constant: 10),
+      aiSubtitleProgressHUDLanguageLabel.trailingAnchor.constraint(equalTo: aiSubtitleProgressHUD.trailingAnchor,
+                                                                   constant: -12),
+      aiSubtitleProgressHUDLanguageLabel.centerYAnchor.constraint(equalTo: aiSubtitleProgressHUD.centerYAnchor)
     ])
+  }
+
+  private func setupAISubtitleLanguageConfirmationHUD(in contentView: NSView) {
+    let hud = aiSubtitleLanguageConfirmationHUD
+    hud.appearance = NSAppearance(named: .vibrantDark)
+    hud.material = .hudWindow
+    hud.blendingMode = .withinWindow
+    hud.state = .active
+    hud.alphaValue = 0.9
+    hud.wantsLayer = true
+    hud.layer?.cornerRadius = 8
+    hud.translatesAutoresizingMaskIntoConstraints = false
+    hud.isHidden = true
+    hud.setAccessibilityLabel(aiSubtitleLocalized("ai_subtitle.confirm_languages",
+                                                   fallback: "Confirm Languages"))
+
+    let targetLabel = makeAISubtitleConfirmationLabel(
+      aiSubtitleLocalized("ai_subtitle.default_subtitle_language", fallback: "Subtitle language")
+    )
+    aiSubtitleConfirmationTargetValue.font = NSFont.systemFont(ofSize: NSFont.systemFontSize,
+                                                               weight: .medium)
+    aiSubtitleConfirmationTargetValue.textColor = .white
+    aiSubtitleConfirmationTargetValue.lineBreakMode = .byTruncatingTail
+    let targetRow = NSStackView(views: [targetLabel, aiSubtitleConfirmationTargetValue])
+    targetRow.orientation = .horizontal
+    targetRow.alignment = .firstBaseline
+    targetRow.spacing = 10
+    targetLabel.widthAnchor.constraint(equalToConstant: 86).isActive = true
+
+    let sourceLabel = makeAISubtitleConfirmationLabel(
+      aiSubtitleLocalized("ai_subtitle.default_spoken_language", fallback: "Audio language")
+    )
+    sourceLabel.widthAnchor.constraint(equalToConstant: 86).isActive = true
+    aiSubtitleConfirmationSourceStack.orientation = .vertical
+    aiSubtitleConfirmationSourceStack.alignment = .leading
+    aiSubtitleConfirmationSourceStack.spacing = 5
+    aiSubtitleConfirmationSourceStack.detachesHiddenViews = true
+    let sourceRow = NSStackView(views: [sourceLabel, aiSubtitleConfirmationSourceStack])
+    sourceRow.orientation = .horizontal
+    sourceRow.alignment = .top
+    sourceRow.spacing = 10
+
+    aiSubtitleConfirmationMoreLanguagesPopup.controlSize = .small
+    aiSubtitleConfirmationMoreLanguagesPopup.target = self
+    aiSubtitleConfirmationMoreLanguagesPopup.action = #selector(aiSubtitleConfirmationMoreLanguageChanged(_:))
+    aiSubtitleConfirmationMoreLanguagesPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 128).isActive = true
+
+    aiSubtitleConfirmationButton.title = aiSubtitleLocalized(
+      "ai_subtitle.confirm_and_generate",
+      fallback: "Confirm and Generate"
+    )
+    aiSubtitleConfirmationButton.controlSize = .regular
+    aiSubtitleConfirmationButton.target = self
+    aiSubtitleConfirmationButton.action = #selector(confirmAISubtitleLanguageAndGenerate(_:))
+
+    let content = NSStackView(views: [targetRow, sourceRow, aiSubtitleConfirmationButton])
+    content.orientation = .vertical
+    content.alignment = .leading
+    content.spacing = 10
+    content.translatesAutoresizingMaskIntoConstraints = false
+    hud.addSubview(content)
+    contentView.addSubview(hud, positioned: .above, relativeTo: nil)
+
+    let preferredTrailingConstraint = hud.trailingAnchor.constraint(equalTo: contentView.trailingAnchor,
+                                                                    constant: -16)
+    preferredTrailingConstraint.priority = .defaultHigh
+    NSLayoutConstraint.activate([
+      hud.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 46),
+      preferredTrailingConstraint,
+      hud.trailingAnchor.constraint(lessThanOrEqualTo: sideBarView.leadingAnchor, constant: -12),
+      hud.leadingAnchor.constraint(greaterThanOrEqualTo: contentView.leadingAnchor, constant: 16),
+      hud.widthAnchor.constraint(equalToConstant: 292),
+      content.leadingAnchor.constraint(equalTo: hud.leadingAnchor, constant: 14),
+      content.trailingAnchor.constraint(equalTo: hud.trailingAnchor, constant: -14),
+      content.topAnchor.constraint(equalTo: hud.topAnchor, constant: 12),
+      content.bottomAnchor.constraint(equalTo: hud.bottomAnchor, constant: -12),
+      targetRow.widthAnchor.constraint(equalTo: content.widthAnchor),
+      sourceRow.widthAnchor.constraint(equalTo: content.widthAnchor),
+      aiSubtitleConfirmationSourceStack.trailingAnchor.constraint(equalTo: sourceRow.trailingAnchor),
+      aiSubtitleConfirmationButton.trailingAnchor.constraint(equalTo: content.trailingAnchor)
+    ])
+  }
+
+  private func makeAISubtitleConfirmationLabel(_ title: String) -> NSTextField {
+    let label = NSTextField(labelWithString: title)
+    label.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
+    label.textColor = NSColor.white.withAlphaComponent(0.72)
+    label.alignment = .right
+    label.lineBreakMode = .byTruncatingTail
+    return label
+  }
+
+  private func scheduleAISubtitleLanguageConfirmationHUDUpdate() {
+    aiSubtitleConfirmationWorkItem?.cancel()
+    let workItem = DispatchWorkItem { [weak self] in
+      self?.updateAISubtitleLanguageConfirmationHUD()
+    }
+    aiSubtitleConfirmationWorkItem = workItem
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.9, execute: workItem)
+  }
+
+  private func updateAISubtitleLanguageConfirmationHUD() {
+    let isShowingAISubtitleQuickSettings = sideBarStatus == .settings
+      && quickSettingView.currentTab == .aiSubtitle
+    guard !isShowingAISubtitleQuickSettings,
+          player.shouldConfirmAISubtitleLanguageBeforeGeneration,
+          let mediaURL = player.info.currentURL,
+          let targetCode = UserDefaults.standard.string(forKey: "aiSubtitle.targetLanguage") else {
+      aiSubtitleLanguageConfirmationHUD.isHidden = true
+      return
+    }
+    if aiSubtitleConfirmationMediaURL != mediaURL {
+      aiSubtitleConfirmationMediaURL = mediaURL
+      aiSubtitleConfirmationSourceCode = nil
+    }
+
+    let preparedStore = AISubtitlePreparedLanguageStore()
+    let sourceCandidates = AISubtitleLanguageCatalog.sourceLanguages.compactMap(\.code)
+    let availableCodes = AISubtitlePreparedLanguageStore.preparedSourceCodes(
+      for: targetCode,
+      sourceCandidates: sourceCandidates,
+      speechLanguageCodes: preparedStore.speechLanguageCodes,
+      translationPairs: preparedStore.translationPairs
+    )
+    let historyStore = AISubtitleLanguageHistoryStore()
+    let suggestions = historyStore.suggestedSourceLanguageCodes(
+      for: mediaURL,
+      availableCodes: availableCodes,
+      selectedCode: aiSubtitleConfirmationSourceCode,
+      defaultCode: UserDefaults.standard.string(forKey: "aiSubtitle.sourceLanguage")
+    )
+    aiSubtitleConfirmationSourceCode = aiSubtitleConfirmationSourceCode.flatMap {
+      availableCodes.contains($0) ? $0 : nil
+    } ?? suggestions.first
+    rebuildAISubtitleConfirmationSourceChoices(suggestions: suggestions,
+                                               availableCodes: availableCodes)
+    aiSubtitleConfirmationTargetValue.stringValue = AISubtitleLanguageCatalog.localizedTitle(for: targetCode)
+    aiSubtitleConfirmationButton.isEnabled = aiSubtitleConfirmationSourceCode != nil
+    aiSubtitleProgressHUD.isHidden = true
+    aiSubtitleLanguageConfirmationHUD.isHidden = suggestions.isEmpty
+  }
+
+  func refreshAISubtitleLanguageConfirmationHUD() {
+    updateAISubtitleLanguageConfirmationHUD()
+  }
+
+  private func rebuildAISubtitleConfirmationSourceChoices(suggestions: [String],
+                                                          availableCodes: Set<String>) {
+    aiSubtitleConfirmationSourceStack.arrangedSubviews.forEach {
+      aiSubtitleConfirmationSourceStack.removeArrangedSubview($0)
+      $0.removeFromSuperview()
+    }
+    aiSubtitleConfirmationSourceButtons = suggestions.map { code in
+      let button = NSButton(
+        radioButtonWithTitle: AISubtitleLanguageCatalog.localizedTitle(for: code),
+        target: self,
+        action: #selector(aiSubtitleConfirmationSourceLanguageChanged(_:))
+      )
+      button.identifier = NSUserInterfaceItemIdentifier(code)
+      button.contentTintColor = .white
+      button.state = code == aiSubtitleConfirmationSourceCode ? .on : .off
+      aiSubtitleConfirmationSourceStack.addArrangedSubview(button)
+      return button
+    }
+
+    aiSubtitleConfirmationMoreLanguagesPopup.removeAllItems()
+    aiSubtitleConfirmationMoreLanguagesPopup.menu?.addItem(NSMenuItem(
+      title: aiSubtitleLocalized("ai_subtitle.more_languages", fallback: "More Languages…"),
+      action: nil,
+      keyEquivalent: ""
+    ))
+    AISubtitleLanguageCatalog.sourceLanguages.forEach { option in
+      guard let code = option.code,
+            availableCodes.contains(code),
+            !suggestions.contains(code) else { return }
+      let item = NSMenuItem(title: option.title, action: nil, keyEquivalent: "")
+      item.representedObject = code
+      aiSubtitleConfirmationMoreLanguagesPopup.menu?.addItem(item)
+    }
+    aiSubtitleConfirmationMoreLanguagesPopup.selectItem(at: 0)
+    aiSubtitleConfirmationMoreLanguagesPopup.isHidden = aiSubtitleConfirmationMoreLanguagesPopup.numberOfItems <= 1
+    if !aiSubtitleConfirmationMoreLanguagesPopup.isHidden {
+      aiSubtitleConfirmationSourceStack.addArrangedSubview(aiSubtitleConfirmationMoreLanguagesPopup)
+    }
+  }
+
+  @objc private func aiSubtitleConfirmationSourceLanguageChanged(_ sender: NSButton) {
+    guard let code = sender.identifier?.rawValue else { return }
+    aiSubtitleConfirmationSourceCode = code
+    updateAISubtitleLanguageConfirmationHUD()
+  }
+
+  @objc private func aiSubtitleConfirmationMoreLanguageChanged(_ sender: NSPopUpButton) {
+    guard let code = sender.selectedItem?.representedObject as? String else { return }
+    aiSubtitleConfirmationSourceCode = code
+    updateAISubtitleLanguageConfirmationHUD()
+  }
+
+  @objc private func confirmAISubtitleLanguageAndGenerate(_ sender: NSButton) {
+    guard let sourceCode = aiSubtitleConfirmationSourceCode else { return }
+    player.rememberAISubtitleSourceLanguageForCurrentMedia(sourceCode)
+    aiSubtitleLanguageConfirmationHUD.isHidden = true
+    player.generateAISubtitlesUsingSavedPreferences(showConfigurationIfNeeded: true)
   }
 
   private func updateAISubtitleProgressHUD() {
@@ -824,13 +1056,23 @@ class MainWindowController: PlayerWindowController {
 
     let progress = state.phase == .completed ? 1 : state.progress
     aiSubtitleProgressHUDRing.fractionCompleted = progress
+    let sourceLanguage = player.aiSubtitleActiveSourceLanguage
+      ?? UserDefaults.standard.string(forKey: "aiSubtitle.sourceLanguage").map(AISubtitleLanguage.init)
+    let targetLanguage = player.aiSubtitleActiveTargetLanguage
+      ?? UserDefaults.standard.string(forKey: "aiSubtitle.targetLanguage").map(AISubtitleLanguage.init)
+    let sourceTitle = sourceLanguage.map { AISubtitleLanguageCatalog.localizedTitle(for: $0.code) } ?? "-"
+    let targetTitle = targetLanguage.map { AISubtitleLanguageCatalog.localizedTitle(for: $0.code) } ?? "-"
+    let languageDescription = "\(sourceTitle) -> \(targetTitle)"
+    aiSubtitleProgressHUDLanguageLabel.stringValue = languageDescription
+    aiSubtitleProgressHUD.toolTip = languageDescription
     if state.phase == .completed {
-      aiSubtitleProgressHUD.setAccessibilityValue("100%")
+      aiSubtitleProgressHUD.setAccessibilityValue("100% · \(languageDescription)")
     } else if state.progress == nil {
-      aiSubtitleProgressHUD.setAccessibilityValue(aiSubtitleLocalized("ai_subtitle.generating",
-                                                                      fallback: "Generating AI subtitles…"))
+      aiSubtitleProgressHUD.setAccessibilityValue(languageDescription)
     } else {
-      aiSubtitleProgressHUD.setAccessibilityValue("\(Int((state.progress! * 100).rounded()))%")
+      aiSubtitleProgressHUD.setAccessibilityValue(
+        "\(Int((state.progress! * 100).rounded()))% · \(languageDescription)"
+      )
     }
     aiSubtitleProgressHUD.isHidden = false
 
@@ -2434,6 +2676,7 @@ class MainWindowController: PlayerWindowController {
     }) {
       self.sidebarAnimationState = .shown
       self.sideBarStatus = type
+      self.updateAISubtitleLanguageConfirmationHUD()
       self.window?.resetCursorRects()
     }
   }
@@ -2470,6 +2713,7 @@ class MainWindowController: PlayerWindowController {
           self.sideBarView.alphaValue = 1
         }
         self.sidebarAnimationState = .hidden
+        self.updateAISubtitleLanguageConfirmationHUD()
         after()
       }
       self.window?.resetCursorRects()

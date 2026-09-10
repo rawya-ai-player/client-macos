@@ -124,8 +124,8 @@ class AboutWindowController: NSWindowController {
   }
 
   private func applyLocalizedBrandName(_ subtitle: String?) {
-    guard let subtitle else { return }
-    iinaLabel.stringValue = "Rawya \u{00B7} \(subtitle)"
+    let displayName = InfoDictionary.shared.displayName
+    iinaLabel.stringValue = subtitle.map { "\(displayName) \u{00B7} \($0)" } ?? displayName
   }
 
   private func configureAboutOverview() {

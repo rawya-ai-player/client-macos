@@ -2848,6 +2848,7 @@
 				84EB1ED21D2F51D3004FA5A1 /* Sources */,
 				84EB1ED31D2F51D3004FA5A1 /* Frameworks */,
 				84EB1ED41D2F51D3004FA5A1 /* Resources */,
+				7A912B982E6E4A8700A5D001 /* Configure Localized App Name */,
 				84817C991DBDF57C00CC2279 /* Copy Dylibs */,
 				84B1CE561F98CAE300994D63 /* Copy Dylib Symlinks */,
 				84817CE81DBE2E3200CC2279 /* Copy Lua Scripts */,
@@ -3069,6 +3070,28 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		7A912B982E6E4A8700A5D001 /* Configure Localized App Name */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/iina/configure_localized_app_name.sh",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/zh-Hans.lproj/InfoPlist.strings",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/zh-Hant.lproj/InfoPlist.strings",
+			);
+			name = "Configure Localized App Name";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "iina/configure_localized_app_name.sh\n";
+		};
 		51728768291B6F30009E6EC1 /* Write Info.h */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;

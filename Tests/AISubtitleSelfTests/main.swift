@@ -146,6 +146,8 @@ expect(!AISubtitleSuggestionPolicy.shouldPresent(scheduledMediaURL: suggestionMe
 expect(AISubtitleAutoMode.always.shouldStart(hasSubtitleTracks: true, hasCompleteAIResult: false)
        && AISubtitleAutoMode.whenMissing.shouldStart(hasSubtitleTracks: false, hasCompleteAIResult: false)
        && !AISubtitleAutoMode.whenMissing.shouldStart(hasSubtitleTracks: true, hasCompleteAIResult: false)
+       && !AISubtitleAutoMode.confirmLanguage.shouldStart(hasSubtitleTracks: false, hasCompleteAIResult: false)
+       && AISubtitleAutoMode.confirmLanguage.requiresLanguageConfirmation
        && !AISubtitleAutoMode.manual.shouldStart(hasSubtitleTracks: false, hasCompleteAIResult: false)
        && !AISubtitleAutoMode.always.shouldStart(hasSubtitleTracks: false, hasCompleteAIResult: true),
        "Automatic generation modes should respect existing subtitles and reusable complete results")
@@ -162,12 +164,82 @@ expect(!livePreviewState.isEnabled,
 livePreviewState.setEnabled(true)
 expect(livePreviewState.isEnabled,
        "The live subtitle preference should persist independently of initialization")
+let preparedLanguageStore = AISubtitlePreparedLanguageStore(userDefaults: initializationDefaults)
+let preparedPair = AISubtitlePreparedLanguageStore.pairKey(source: "ja", target: "zh-Hans")
+preparedLanguageStore.save(speechLanguageCodes: ["en", "ja"],
+                           translationPairs: [preparedPair])
+let languageHistoryStore = AISubtitleLanguageHistoryStore(userDefaults: initializationDefaults)
+let koreanMediaURL = URL(fileURLWithPath: "/tmp/korean-video.mkv")
+let japaneseMediaURL = URL(fileURLWithPath: "/tmp/japanese-video.mkv")
+let englishMediaURL = URL(fileURLWithPath: "/tmp/english-video.mkv")
+languageHistoryStore.record(sourceLanguageCode: "ko", for: koreanMediaURL)
+languageHistoryStore.record(sourceLanguageCode: "ja", for: japaneseMediaURL)
+languageHistoryStore.record(sourceLanguageCode: "en", for: englishMediaURL)
+languageHistoryStore.record(sourceLanguageCode: "ja", for: koreanMediaURL)
+expect(languageHistoryStore.sourceLanguageCode(for: koreanMediaURL) == "ja"
+       && Array(languageHistoryStore.recentSourceLanguageCodes.prefix(3)) == ["ja", "en", "ko"]
+       && languageHistoryStore.suggestedSourceLanguageCodes(
+        for: koreanMediaURL,
+        availableCodes: ["en", "ja", "ko"],
+        selectedCode: "ko",
+        defaultCode: "en"
+       ) == ["ja", "en", "ko"],
+       "Language confirmation should prioritize the current video, then the three most recent prepared languages")
+expect(AISubtitlePreparedLanguageStore.isPrepared(
+  source: "en",
+  target: "en-US",
+  speechLanguageCodes: preparedLanguageStore.speechLanguageCodes,
+  translationPairs: preparedLanguageStore.translationPairs
+) && AISubtitlePreparedLanguageStore.isPrepared(
+  source: "ja",
+  target: "zh-Hans",
+  speechLanguageCodes: preparedLanguageStore.speechLanguageCodes,
+  translationPairs: preparedLanguageStore.translationPairs
+) && !AISubtitlePreparedLanguageStore.isPrepared(
+  source: "ja",
+  target: "ko",
+  speechLanguageCodes: preparedLanguageStore.speechLanguageCodes,
+  translationPairs: preparedLanguageStore.translationPairs
+), "Quick settings should expose only fully prepared source and subtitle language combinations")
+let preparedTargets = AISubtitlePreparedLanguageStore.preparedTargetCodes(
+  sourceCandidates: ["en", "ja", "ko"],
+  targetCandidates: ["en", "ja", "zh-Hans", "ko"],
+  speechLanguageCodes: preparedLanguageStore.speechLanguageCodes,
+  translationPairs: preparedLanguageStore.translationPairs
+)
+let preparedZhSources = AISubtitlePreparedLanguageStore.preparedSourceCodes(
+  for: "zh-Hans",
+  sourceCandidates: ["en", "ja", "ko"],
+  speechLanguageCodes: preparedLanguageStore.speechLanguageCodes,
+  translationPairs: preparedLanguageStore.translationPairs
+)
+expect(preparedTargets == ["en", "ja", "zh-Hans"] && preparedZhSources == ["ja"],
+       "All AI subtitle language menus must expose the same prepared combinations")
+preparedLanguageStore.save(speechLanguageCodes: ["de", "en", "ja", "zh-Hans"],
+                           translationPairs: [
+                            AISubtitlePreparedLanguageStore.pairKey(source: "de", target: "zh-Hans"),
+                            AISubtitlePreparedLanguageStore.pairKey(source: "en", target: "zh-Hans"),
+                            preparedPair
+                           ])
+let refreshedZhSources = AISubtitlePreparedLanguageStore.preparedSourceCodes(
+  for: "zh-Hans",
+  sourceCandidates: ["de", "en", "ja", "ko", "zh-Hans"],
+  speechLanguageCodes: preparedLanguageStore.speechLanguageCodes,
+  translationPairs: preparedLanguageStore.translationPairs
+)
+expect(refreshedZhSources == ["de", "en", "ja", "zh-Hans"],
+       "Language menus must refresh from the latest persisted resource snapshot")
 let localInitialization = AISubtitleInitializationState(userDefaults: initializationDefaults,
                                                         credentialChecker: TestCredentials(providers: []),
                                                         consentChecker: TestConsent(providers: []),
                                                         systemSupported: true)
 expect(!localInitialization.isComplete,
        "AI subtitle initialization should remain incomplete until setup succeeds")
+localInitialization.markPrepared(provider: .apple)
+expect(localInitialization.isPrepared(.apple)
+       && !localInitialization.isComplete
+       && !featureState.isEnabled,
+       "Preparing a plan should not choose it as the default or enable AI subtitles")
 initializationDefaults.set(0, forKey: "aiSubtitle.provider")
 initializationDefaults.set("ja", forKey: "aiSubtitle.sourceLanguage")
 initializationDefaults.set("zh-Hans", forKey: "aiSubtitle.targetLanguage")
@@ -202,13 +274,13 @@ let remoteWithoutConsent = AISubtitleInitializationState(userDefaults: initializ
 initializationDefaults.set(1, forKey: "aiSubtitle.provider")
 remoteWithoutConsent.markComplete(provider: .openAI)
 expect(!remoteWithoutConsent.isComplete,
-       "Remote setup should remain incomplete without cloud-processing consent")
+       "Legacy direct cloud setup should not become a prepared Rawya remote plan")
 let readyRemoteInitialization = AISubtitleInitializationState(userDefaults: initializationDefaults,
                                                               credentialChecker: TestCredentials(providers: [.openAI]),
                                                               consentChecker: TestConsent(providers: [.openAI]),
                                                               systemSupported: true)
-expect(readyRemoteInitialization.isComplete,
-       "Remote setup should complete only when credentials and consent are both available")
+expect(!readyRemoteInitialization.isComplete && !readyRemoteInitialization.isPrepared(.openAI),
+       "Third-party credentials should not make the future Rawya remote plan ready")
 initializationDefaults.set(2, forKey: "aiSubtitle.provider")
 expect(!readyRemoteInitialization.isComplete,
        "Initialization should not apply to a different selected provider")
@@ -650,6 +722,55 @@ if #available(macOS 26.0, *) {
     chunkOffset: 0,
     language: korean).count == 1,
          "A short Korean phrase pause should not be split as aggressively as Chinese or Japanese")
+
+  func appleTimedText(_ runs: [(String, Double, Double)]) -> AttributedString {
+    var text = AttributedString()
+    for (value, start, end) in runs {
+      var run = AttributedString(value)
+      run.audioTimeRange = CMTimeRange(
+        start: CMTime(seconds: start, preferredTimescale: 1_000),
+        end: CMTime(seconds: end, preferredTimescale: 1_000))
+      text.append(run)
+    }
+    return text
+  }
+
+  let joeyTiming = AppleSpeechTimedTextSegmenter().segments(
+    from: appleTimedText([
+      ("Joey,", 52.8, 54.36),
+      (" look", 54.36, 54.54)
+    ]),
+    chunkOffset: 1_053,
+    language: english,
+    precedingAudioEnd: 51.78)
+  let wowTiming = AppleSpeechTimedTextSegmenter().segments(
+    from: appleTimedText([(" Wow,", 13.44, 14.88)]),
+    chunkOffset: 1_111.5,
+    language: english,
+    precedingAudioEnd: 6.48)
+  let didTiming = AppleSpeechTimedTextSegmenter().segments(
+    from: appleTimedText([(" Did", 25.74, 27)]),
+    chunkOffset: 1_111.5,
+    language: english,
+    precedingAudioEnd: 24.96)
+  expect(abs((joeyTiming.segments.first?.timeRange.start ?? 0) - 1_106.88) < 0.001
+         && abs((wowTiming.segments.first?.timeRange.start ?? 0) - 1_125.93) < 0.001
+         && abs((didTiming.segments.first?.timeRange.start ?? 0) - 1_138.05) < 0.001,
+         "Apple word ranges that absorb leading silence should be tightened to a small display lead")
+
+  let continuousTiming = AppleSpeechTimedTextSegmenter().segments(
+    from: appleTimedText([(" I", 13.8, 14.88), (" just", 14.88, 15.06)]),
+    chunkOffset: 0,
+    language: english,
+    precedingAudioEnd: 13.74)
+  let elongatedTiming = AppleSpeechTimedTextSegmenter().segments(
+    from: appleTimedText([(" So...", 43.2, 45.6)]),
+    chunkOffset: 0,
+    language: english,
+    precedingAudioEnd: 39.06)
+  expect(continuousTiming.segments.first?.timeRange.start == 13.8
+         && elongatedTiming.segments.first?.timeRange.start == 43.2,
+         "Continuous speech and intentionally elongated opening words must keep Apple's original timing")
 }
 let translationContextSegments = [
   AISubtitleSegment(id: "context-a",
@@ -767,6 +888,35 @@ expect(smoothedEnglishBoundary.originalCues[0].timeRange.end > 1.2
        && smoothedEnglishBoundary.originalCues[0].timeRange.end
          == smoothedEnglishBoundary.originalCues[1].timeRange.start,
        "A dense semantic range may borrow a small amount of spare adjacent reading time")
+let boundedEarlySubtitle = AISubtitlePairedTimelineAssembler().assemble(
+  transcript: [
+    AISubtitleSegment(id: "early-boundary-a",
+                      timeRange: AISubtitleTimeRange(start: 0, end: 2),
+                      text: "好",
+                      language: chinese),
+    AISubtitleSegment(id: "early-boundary-b",
+                      timeRange: AISubtitleTimeRange(start: 2, end: 3),
+                      text: "马上进入高三了，这学期需要做好充分准备",
+                      language: chinese)
+  ],
+  translatedCues: [
+    AISubtitleCue(id: "early-boundary-a",
+                  timeRange: AISubtitleTimeRange(start: 0, end: 2),
+                  text: "Okay",
+                  language: english),
+    AISubtitleCue(id: "early-boundary-b",
+                  timeRange: AISubtitleTimeRange(start: 2, end: 3),
+                  text: "We are entering our senior year and need to be fully prepared this semester",
+                  language: english)
+  ],
+  sourceLanguage: chinese,
+  targetLanguage: english)
+let earlyDisplayLead = 2 - (boundedEarlySubtitle.originalCues.last?.timeRange.start ?? 2)
+expect(earlyDisplayLead > 0.001
+       && earlyDisplayLead <= 0.121
+       && boundedEarlySubtitle.originalCues.last?.timeRange.start
+         == boundedEarlySubtitle.translatedCues.last?.timeRange.start,
+       "A subtitle may lead the next speech turn slightly, but never by more than 120 milliseconds")
 let condensedEnglishSentences = AISubtitlePairedTimelineAssembler().assemble(
   transcript: [AISubtitleSegment(id: "condensed-sentences",
                                  timeRange: AISubtitleTimeRange(start: 0, end: 4.2),
@@ -785,10 +935,10 @@ expect(condensedEnglishSentences.translatedCues.count == 3
        },
        "Each language should choose its own readable cue count without splitting words")
 expect(condensedEnglishSentences.originalCues.first?.timeRange.start == 0
-       && condensedEnglishSentences.originalCues.last?.timeRange.end == 4.2
+       && abs((condensedEnglishSentences.originalCues.last?.timeRange.end ?? 0) - 4.65) < 0.001
        && condensedEnglishSentences.translatedCues.first?.timeRange.start == 0
-       && condensedEnglishSentences.translatedCues.last?.timeRange.end == 4.2,
-       "Independently segmented tracks should remain inside the same semantic range")
+       && abs((condensedEnglishSentences.translatedCues.last?.timeRange.end ?? 0) - 4.65) < 0.001,
+       "Independently segmented tracks should share the same brief post-speech hold")
 let meaningfulTurns = AISubtitleSemanticSegmenter().assemble([
   AISubtitleSegment(id: "turn-1",
                     timeRange: AISubtitleTimeRange(start: 5, end: 6),
@@ -889,6 +1039,60 @@ expect(pairedTimeline.originalCues.first?.timeRange.start == pairedTimeline.tran
 expect(pairedTimeline.originalCues[0].timeRange.end > 0.4
        && pairedTimeline.originalCues[0].timeRange.end <= 3,
        "A short cue should use available silence to provide a readable display duration")
+let postSpeechHoldTimeline = AISubtitlePairedTimelineAssembler().assemble(
+  transcript: [
+    AISubtitleSegment(id: "post-speech-a",
+                      timeRange: AISubtitleTimeRange(start: 10, end: 12),
+                      text: "第一句",
+                      language: chinese),
+    AISubtitleSegment(id: "post-speech-b",
+                      timeRange: AISubtitleTimeRange(start: 20, end: 21),
+                      text: "第二句",
+                      language: chinese)
+  ],
+  translatedCues: [
+    AISubtitleCue(id: "post-speech-a",
+                  timeRange: AISubtitleTimeRange(start: 10, end: 12),
+                  text: "First line",
+                  language: english),
+    AISubtitleCue(id: "post-speech-b",
+                  timeRange: AISubtitleTimeRange(start: 20, end: 21),
+                  text: "Second line",
+                  language: english)
+  ],
+  sourceLanguage: chinese,
+  targetLanguage: english)
+expect(abs((postSpeechHoldTimeline.originalCues[0].timeRange.end) - 12.45) < 0.001
+       && abs((postSpeechHoldTimeline.translatedCues[0].timeRange.end) - 12.45) < 0.001,
+       "A subtitle should remain briefly after speech ends when silence follows")
+let boundedPostSpeechHoldTimeline = AISubtitlePairedTimelineAssembler().assemble(
+  transcript: [
+    AISubtitleSegment(id: "bounded-hold-a",
+                      timeRange: AISubtitleTimeRange(start: 0, end: 1),
+                      text: "上一句",
+                      language: chinese),
+    AISubtitleSegment(id: "bounded-hold-b",
+                      timeRange: AISubtitleTimeRange(start: 1.2, end: 2),
+                      text: "下一句",
+                      language: chinese)
+  ],
+  translatedCues: [
+    AISubtitleCue(id: "bounded-hold-a",
+                  timeRange: AISubtitleTimeRange(start: 0, end: 1),
+                  text: "Previous",
+                  language: english),
+    AISubtitleCue(id: "bounded-hold-b",
+                  timeRange: AISubtitleTimeRange(start: 1.2, end: 2),
+                  text: "Next",
+                  language: english)
+  ],
+  sourceLanguage: chinese,
+  targetLanguage: english)
+expect(boundedPostSpeechHoldTimeline.originalCues[0].timeRange.end
+         <= boundedPostSpeechHoldTimeline.originalCues[1].timeRange.start
+       && boundedPostSpeechHoldTimeline.translatedCues[0].timeRange.end
+         <= boundedPostSpeechHoldTimeline.translatedCues[1].timeRange.start,
+       "Post-speech hold must never overlap or delay the next subtitle")
 let longDisplayTimeline = AISubtitlePairedTimelineAssembler().assemble(
   transcript: [AISubtitleSegment(
     id: "long-display",
@@ -905,9 +1109,9 @@ let longDisplayTimeline = AISubtitlePairedTimelineAssembler().assemble(
 expect(longDisplayTimeline.originalCues.count >= 3
        && longDisplayTimeline.translatedCues.count >= 3
        && longDisplayTimeline.originalCues.first?.timeRange.start == 10
-       && longDisplayTimeline.originalCues.last?.timeRange.end == 22
+       && abs((longDisplayTimeline.originalCues.last?.timeRange.end ?? 0) - 22.45) < 0.001
        && longDisplayTimeline.translatedCues.first?.timeRange.start == 10
-       && longDisplayTimeline.translatedCues.last?.timeRange.end == 22
+       && abs((longDisplayTimeline.translatedCues.last?.timeRange.end ?? 0) - 22.45) < 0.001
        && longDisplayTimeline.originalCues.allSatisfy { $0.timeRange.duration <= 6.001 }
        && longDisplayTimeline.translatedCues.allSatisfy { $0.timeRange.duration <= 6.001 }
        && longDisplayTimeline.originalCues.allSatisfy { $0.text.components(separatedBy: .newlines).count <= 2 }
@@ -993,10 +1197,10 @@ let f1LongExchangeTimeline = AISubtitlePairedTimelineAssembler().assemble(
 expect(f1LongExchangeTimeline.originalCues.count >= 2,
        "A dense English-Japanese exchange should split into multiple display cues")
 expect(f1LongExchangeTimeline.originalCues.first?.timeRange.start == 5266.26
-       && f1LongExchangeTimeline.originalCues.last?.timeRange.end == 5271.36
+       && abs((f1LongExchangeTimeline.originalCues.last?.timeRange.end ?? 0) - 5271.81) < 0.001
        && f1LongExchangeTimeline.translatedCues.first?.timeRange.start == 5266.26
-       && f1LongExchangeTimeline.translatedCues.last?.timeRange.end == 5271.36,
-       "A dense English-Japanese exchange should keep both tracks inside its semantic range")
+       && abs((f1LongExchangeTimeline.translatedCues.last?.timeRange.end ?? 0) - 5271.81) < 0.001,
+       "A dense English-Japanese exchange should keep both tracks aligned through the post-speech hold")
 expect(f1LongExchangeTimeline.originalCues.allSatisfy {
   $0.text.components(separatedBy: .newlines).count <= 2
     && $0.text.components(separatedBy: .newlines).allSatisfy { $0.count <= 42 }
@@ -1061,6 +1265,26 @@ expect(sidecarFiles.originalURL.lastPathComponent == "Example Movie.rawya-ai.en.
        "Completed translated subtitles should publish stable source and target SRT sidecars")
 let unrelatedSidecar = sidecarDirectory.appendingPathComponent("Example Movie.custom.srt")
 try Data("keep".utf8).write(to: unrelatedSidecar)
+let detectedSidecars = AISubtitleSidecarPublisher().existingSidecars(for: sidecarMediaURL)
+expect(Set(detectedSidecars.map(\.lastPathComponent)) == Set(sidecarFiles.allURLs.map(\.lastPathComponent)),
+       "Existing AI subtitle detection should find only the current video's generated sidecars")
+let originalArtifactData = try Data(contentsOf: artifacts.originalSRTURL)
+let translatedArtifactData = try Data(contentsOf: artifacts.translatedSRTURL)
+let regeneratedOriginal = "1\n00:00:00,000 --> 00:00:01,000\nRegenerated source\n"
+let regeneratedTranslation = "1\n00:00:00,000 --> 00:00:01,000\n重新生成的译文\n"
+try Data(regeneratedOriginal.utf8).write(to: artifacts.originalSRTURL, options: .atomic)
+try Data(regeneratedTranslation.utf8).write(to: artifacts.translatedSRTURL, options: .atomic)
+let replacedSidecarFiles = try AISubtitleSidecarPublisher().publish(artifacts: artifacts,
+                                                                    key: key,
+                                                                    mediaURL: sidecarMediaURL)
+let replacedOriginalText = try String(contentsOf: sidecarFiles.originalURL, encoding: .utf8)
+let replacedTranslationText = try String(contentsOf: sidecarFiles.translatedURL!, encoding: .utf8)
+expect(replacedSidecarFiles == sidecarFiles
+       && replacedOriginalText == regeneratedOriginal
+       && replacedTranslationText == regeneratedTranslation,
+       "Regeneration should atomically replace the existing sidecar files at their stable paths")
+try originalArtifactData.write(to: artifacts.originalSRTURL, options: .atomic)
+try translatedArtifactData.write(to: artifacts.translatedSRTURL, options: .atomic)
 var japaneseSidecarMedia = media
 japaneseSidecarMedia.targetLanguage = japanese
 let japaneseSidecarKey = AISubtitleCacheKey(media: japaneseSidecarMedia,
@@ -1073,6 +1297,36 @@ expect(sidecarFiles.allURLs.allSatisfy { FileManager.default.fileExists(atPath: 
        && japaneseSidecarFiles.allURLs.allSatisfy { FileManager.default.fileExists(atPath: $0.path) }
        && FileManager.default.fileExists(atPath: unrelatedSidecar.path),
        "Generating a second target language should retain source, both translations, and user subtitle files")
+
+let mediaCacheResetRoot = tempRoot.deletingLastPathComponent()
+  .appendingPathComponent("ai-subtitle-media-cache-reset-\(UUID().uuidString)", isDirectory: true)
+defer { try? FileManager.default.removeItem(at: mediaCacheResetRoot) }
+let mediaCacheResetStore = AISubtitleCacheStore(layout: AISubtitleCacheLayout(rootURL: mediaCacheResetRoot))
+let firstRegenerationKey = AISubtitleCacheKey(media: media,
+                                               transcriberID: .apple,
+                                               translatorID: .apple,
+                                               transcriberModelIdentifier: "regeneration-first")
+let secondRegenerationKey = AISubtitleCacheKey(media: media,
+                                                transcriberID: .apple,
+                                                translatorID: .apple,
+                                                transcriberModelIdentifier: "regeneration-second")
+var unrelatedRegenerationMedia = media
+unrelatedRegenerationMedia.url = URL(fileURLWithPath: "/tmp/unrelated-regeneration.mp4")
+let unrelatedRegenerationKey = AISubtitleCacheKey(media: unrelatedRegenerationMedia,
+                                                   transcriberID: .apple,
+                                                   translatorID: .apple)
+for regenerationKey in [firstRegenerationKey, secondRegenerationKey, unrelatedRegenerationKey] {
+  _ = try mediaCacheResetStore.save(transcript: transcript,
+                                    cues: cues,
+                                    coveredRanges: [AISubtitleTimeRange(start: 0, end: 4)],
+                                    for: regenerationKey)
+}
+let removedRegenerationCacheCount = try mediaCacheResetStore.removeCachedContent(forMediaURL: media.url)
+expect(removedRegenerationCacheCount == 2
+       && mediaCacheResetStore.cachedArtifacts(for: firstRegenerationKey) == nil
+       && mediaCacheResetStore.cachedArtifacts(for: secondRegenerationKey) == nil
+       && mediaCacheResetStore.cachedArtifacts(for: unrelatedRegenerationKey) != nil,
+       "Full regeneration should clear every cache entry for the current video and preserve other videos")
 var preciseTimestampMedia = media
 preciseTimestampMedia.fileModifiedAt = Date(timeIntervalSince1970: 100.123456789)
 let preciseTimestampKey = AISubtitleCacheKey(media: preciseTimestampMedia,

@@ -1106,10 +1106,12 @@ struct AISubtitleReadingOptions {
   var minimumSplitCueDuration: Double = 1.1
   var minimumStableCueDuration: Double = 0.8
   var maximumBoundaryAdjustment: Double = 0.35
+  var maximumEarlyDisplayLead: Double = 0.12
+  var maximumPostSpeechHold: Double = 0.45
 }
 
-/// Keeps source and target inside the same semantic speech ranges while allowing each
-/// language to choose its own display segmentation and reading rhythm.
+/// Keeps source and target on the same semantic anchors while allowing each language
+/// to choose its own display segmentation and bounded pre/post-speech timing.
 struct AISubtitlePairedTimelineAssembler {
   var readingOptions = AISubtitleReadingOptions()
   private let partitioner = AISubtitleTextPartitioner()
@@ -1119,6 +1121,7 @@ struct AISubtitlePairedTimelineAssembler {
   private struct Pair {
     var id: String
     var timeRange: AISubtitleTimeRange
+    var speechEnd: Double
     var sourceText: String
     var translatedText: String
   }
@@ -1153,6 +1156,7 @@ struct AISubtitlePairedTimelineAssembler {
             let targetText = removingEdgePunctuation(translatedText) else { continue }
       var pair = Pair(id: segment.id,
                       timeRange: segment.timeRange,
+                      speechEnd: segment.timeRange.end,
                       sourceText: sourceText,
                       translatedText: targetText)
       guard var previous = pairs.popLast() else {
@@ -1162,6 +1166,7 @@ struct AISubtitlePairedTimelineAssembler {
       let gap = pair.timeRange.start - previous.timeRange.end
       if previous.sourceText == pair.sourceText && gap < 0 {
         previous.timeRange.end = max(previous.timeRange.end, pair.timeRange.end)
+        previous.speechEnd = max(previous.speechEnd, pair.speechEnd)
         pairs.append(previous)
         continue
       }
@@ -1186,17 +1191,19 @@ struct AISubtitlePairedTimelineAssembler {
                      sourceLanguage: sourceLanguage,
                      targetLanguage: targetLanguage)
 
-    let originalCues = pairs.flatMap {
-      displayCues(from: $0,
-                  text: $0.sourceText,
+    let originalCues = pairs.indices.flatMap { index in
+      displayCues(from: pairs[index],
+                  text: pairs[index].sourceText,
                   language: sourceLanguage,
-                  originalText: nil)
+                  originalText: nil,
+                  postSpeechEnd: postSpeechEnd(for: index, in: pairs))
     }
-    let normalizedTranslatedCues = pairs.flatMap {
-      displayCues(from: $0,
-                  text: $0.translatedText,
+    let normalizedTranslatedCues = pairs.indices.flatMap { index in
+      displayCues(from: pairs[index],
+                  text: pairs[index].translatedText,
                   language: targetLanguage,
-                  originalText: $0.sourceText)
+                  originalText: pairs[index].sourceText,
+                  postSpeechEnd: postSpeechEnd(for: index, in: pairs))
     }
     let normalizedTranscript = originalCues.map {
       AISubtitleSegment(id: $0.id,
@@ -1212,7 +1219,8 @@ struct AISubtitlePairedTimelineAssembler {
   private func displayCues(from pair: Pair,
                            text: String,
                            language: AISubtitleLanguage,
-                           originalText: String?) -> [AISubtitleCue] {
+                           originalText: String?,
+                           postSpeechEnd: Double) -> [AISubtitleCue] {
     let compact = usesCompactWritingSystem(language)
     let maximumCharacterCount = compact
       ? readingOptions.maximumCompactCueCharacterCount
@@ -1265,7 +1273,7 @@ struct AISubtitlePairedTimelineAssembler {
     let allocations = displayDurations(for: weights,
                                        totalDuration: displayDuration)
     var cursor = pair.timeRange.start
-    return cleanedParts.indices.map { index in
+    var cues = cleanedParts.indices.map { index in
       let end: Double
       if index == cleanedParts.count - 1 {
         end = pair.timeRange.start + displayDuration
@@ -1281,6 +1289,19 @@ struct AISubtitlePairedTimelineAssembler {
         originalText: originalText,
         language: language)
     }
+    if var last = cues.popLast() {
+      last.timeRange.end = min(last.timeRange.start + readingOptions.maximumDisplayDuration,
+                               max(last.timeRange.end, postSpeechEnd))
+      cues.append(last)
+    }
+    return cues
+  }
+
+  private func postSpeechEnd(for index: Int, in pairs: [Pair]) -> Double {
+    let availableEnd = index == pairs.indices.last
+      ? .greatestFiniteMagnitude
+      : pairs[pairs.index(after: index)].timeRange.start
+    return min(availableEnd, pairs[index].speechEnd + readingOptions.maximumPostSpeechHold)
   }
 
   private func displayDurations(for weights: [Double], totalDuration: Double) -> [Double] {
@@ -1334,6 +1355,7 @@ struct AISubtitlePairedTimelineAssembler {
                           max(0, currentNeed - currentDuration),
                           max(0, nextDuration - max(readingOptions.minimumDisplayDuration, nextNeed)))
       let moveEarlier = min(readingOptions.maximumBoundaryAdjustment,
+                            readingOptions.maximumEarlyDisplayLead,
                             max(0, nextNeed - nextDuration),
                             max(0, currentDuration - max(readingOptions.minimumDisplayDuration, currentNeed)))
       let adjustment = moveLater > 0 ? moveLater : -moveEarlier
@@ -1708,6 +1730,25 @@ struct AISubtitleCacheStore {
   }
 
   @discardableResult
+  func removeCachedContent(forMediaURL mediaURL: URL) throws -> Int {
+    guard fileManager.fileExists(atPath: layout.rootURL.path) else { return 0 }
+    let directories = try fileManager.contentsOfDirectory(at: layout.rootURL,
+                                                           includingPropertiesForKeys: [.isDirectoryKey],
+                                                           options: [.skipsHiddenFiles])
+    var removedCount = 0
+    for directoryURL in directories {
+      let values = try directoryURL.resourceValues(forKeys: [.isDirectoryKey])
+      guard values.isDirectory == true,
+            let metadata = try? decodedMetadata(at: directoryURL.appendingPathComponent("metadata.json")),
+            let cachedMediaURL = URL(string: metadata.key.mediaURLString),
+            cachedMediaURL.standardizedFileURL == mediaURL.standardizedFileURL else { continue }
+      try fileManager.removeItem(at: directoryURL)
+      removedCount += 1
+    }
+    return removedCount
+  }
+
+  @discardableResult
   func refreshSubtitleFiles(for key: AISubtitleCacheKey) throws -> AISubtitleCacheArtifacts {
     let cached = try cachedContent(for: key)
     return try save(transcript: cached.transcript,
@@ -1851,6 +1892,21 @@ struct AISubtitleSidecarFiles: Hashable {
 
 struct AISubtitleSidecarPublisher {
   var fileManager: FileManager = .default
+
+  func existingSidecars(for mediaURL: URL) -> [URL] {
+    guard mediaURL.isFileURL else { return [] }
+    let directoryURL = mediaURL.deletingLastPathComponent()
+    let prefix = mediaURL.deletingPathExtension().lastPathComponent + ".rawya-ai."
+    guard let contents = try? fileManager.contentsOfDirectory(at: directoryURL,
+                                                               includingPropertiesForKeys: [.isRegularFileKey],
+                                                               options: [.skipsHiddenFiles]) else { return [] }
+    return contents.filter { url in
+      guard url.pathExtension.lowercased() == "srt",
+            url.lastPathComponent.hasPrefix(prefix),
+            (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { return false }
+      return true
+    }.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+  }
 
   func destinations(key: AISubtitleCacheKey, mediaURL: URL) throws -> AISubtitleSidecarFiles {
     guard mediaURL.isFileURL else {

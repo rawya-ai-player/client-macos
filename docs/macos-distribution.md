@@ -186,15 +186,18 @@ RAWYA_CONFIRM_GITHUB_DRAFT=CREATE_RAWYA_DRAFT \
 
 The script validates the complete bundle again, verifies the remote annotated
 tag, and uploads all assets as an unpublished GitHub draft. It never publishes
-the release.
+the release. Draft-only manifests, notes, checksums, and the custom source
+archive remain available for the approval workflow but are not public assets.
 
 Configure the GitHub environment named `macos-release` with required reviewers
 before the first release. An approver can then run the `Publish macOS release`
 workflow with the exact tag. The workflow downloads and validates the draft,
 independently verifies the ZIP and appcast Ed25519 signatures using only the
-public key from the tagged source, publishes it as the latest stable release,
-and confirms that the public `appcast.xml` is byte-for-byte identical to the
-approved asset.
+public key from the tagged source, removes draft-only validation assets, and
+publishes it as the latest stable release. The public asset list contains only
+the DMG, Sparkle ZIP, and `appcast.xml`, alongside GitHub's source archives. The
+workflow then confirms that the public `appcast.xml` is byte-for-byte identical
+to the approved asset.
 
 ## Continuous integration
 

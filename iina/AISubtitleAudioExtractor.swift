@@ -77,7 +77,10 @@ final class FFmpegAISubtitleAudioExtractor: AISubtitleAudioExtracting, AISubtitl
                                                  audioStreamIndex: media.audioStreamIndex)))
       } catch let error as NSError {
         completion(.failure(AISubtitleError(code: "ffmpeg_audio_\(error.code)",
-                                            message: error.localizedDescription)))
+                                            message: aiSubtitleLocalized(
+                                              "ai_subtitle.audio_read_failed",
+                                              fallback: "Rawya couldn't read this video's audio. The file may contain damaged audio data."
+                                            ))))
       }
     }
   }

@@ -14,14 +14,27 @@ import Translation
 struct AppleSpeechTimedTextSegmenter {
   var compactLanguagePauseDuration: Double = 0.3
   var otherLanguagePauseDuration: Double = 0.45
+  var minimumLeadingSilenceCorrection: Double = 0.45
+  var maximumLeadingSilenceCorrection: Double = 1.2
 
   func segments(from text: AttributedString,
                 chunkOffset: Double,
                 language: AISubtitleLanguage) -> [AISubtitleSegment] {
+    segments(from: text,
+             chunkOffset: chunkOffset,
+             language: language,
+             precedingAudioEnd: nil).segments
+  }
+
+  func segments(from text: AttributedString,
+                chunkOffset: Double,
+                language: AISubtitleLanguage,
+                precedingAudioEnd: Double?) -> (segments: [AISubtitleSegment], lastAudioEnd: Double?) {
     var result: [AISubtitleSegment] = []
     var currentText = ""
     var currentStart: Double?
     var currentEnd: Double?
+    var previousAudioEnd = precedingAudioEnd
     var confidenceTotal = 0.0
     var confidenceCount = 0
     let primaryLanguage = language.code.replacingOccurrences(of: "_", with: "-")
@@ -60,6 +73,9 @@ struct AppleSpeechTimedTextSegmenter {
       }
       let start = timeRange.start.seconds
       let end = timeRange.end.seconds
+      let startsAfterPause = previousAudioEnd.map {
+        start - $0 >= minimumPauseDuration
+      } ?? false
       if let previousEnd = currentEnd,
          start - previousEnd >= minimumPauseDuration {
         appendCurrent()
@@ -69,16 +85,51 @@ struct AppleSpeechTimedTextSegmenter {
         confidenceTotal = 0
         confidenceCount = 0
       }
+      let effectiveStart = startsAfterPause
+        ? correctedOpeningStart(for: value,
+                                start: start,
+                                end: end,
+                                primaryLanguage: primaryLanguage)
+        : start
       currentText += value
-      currentStart = currentStart.map { min($0, start) } ?? start
+      currentStart = currentStart.map { min($0, effectiveStart) } ?? effectiveStart
       currentEnd = currentEnd.map { max($0, end) } ?? end
+      previousAudioEnd = max(previousAudioEnd ?? end, end)
       if let confidence = run.transcriptionConfidence {
         confidenceTotal += confidence
         confidenceCount += 1
       }
     }
     appendCurrent()
-    return result
+    return (result, previousAudioEnd)
+  }
+
+  private func correctedOpeningStart(for value: String,
+                                     start: Double,
+                                     end: Double,
+                                     primaryLanguage: String?) -> Double {
+    guard end > start,
+          !value.contains("..."),
+          !value.contains("\u{2026}") else { return start }
+    let words = value.split(whereSeparator: { $0.isWhitespace })
+    guard words.count == 1 else { return start }
+    let characterCount = value.unicodeScalars.filter {
+      CharacterSet.alphanumerics.contains($0)
+    }.count
+    guard characterCount > 0 else { return start }
+
+    let maximumOpeningWindow: Double
+    if primaryLanguage.map({ ["zh", "ja", "ko"].contains($0) }) == true {
+      guard characterCount <= 4 else { return start }
+      maximumOpeningWindow = min(0.92, 0.28 + Double(characterCount) * 0.16)
+    } else {
+      guard characterCount <= 8 else { return start }
+      maximumOpeningWindow = min(0.62, 0.36 + Double(characterCount) * 0.03)
+    }
+
+    let correction = end - start - maximumOpeningWindow
+    guard correction >= minimumLeadingSilenceCorrection else { return start }
+    return min(end - maximumOpeningWindow, start + maximumLeadingSilenceCorrection)
   }
 }
 
@@ -362,16 +413,19 @@ final class AppleAISubtitleTranscriber: AISubtitleTranscriber, AISubtitleCancela
                               chunkOffset: Double,
                               language: AISubtitleLanguage) async throws -> [AISubtitleSegment] {
     var segments: [AISubtitleSegment] = []
+    var previousAudioEnd: Double?
     let timedTextSegmenter = AppleSpeechTimedTextSegmenter()
     for try await result in transcriber.results where result.isFinal {
       let text = String(result.text.characters)
         .trimmingCharacters(in: .whitespacesAndNewlines)
       guard !text.isEmpty else { continue }
-      let timedSegments = timedTextSegmenter.segments(from: result.text,
-                                                      chunkOffset: chunkOffset,
-                                                      language: language)
-      if !timedSegments.isEmpty {
-        segments.append(contentsOf: timedSegments)
+      let timedSegmentation = timedTextSegmenter.segments(from: result.text,
+                                                          chunkOffset: chunkOffset,
+                                                          language: language,
+                                                          precedingAudioEnd: previousAudioEnd)
+      previousAudioEnd = timedSegmentation.lastAudioEnd ?? result.range.end.seconds
+      if !timedSegmentation.segments.isEmpty {
+        segments.append(contentsOf: timedSegmentation.segments)
         continue
       }
       let start = chunkOffset + result.range.start.seconds

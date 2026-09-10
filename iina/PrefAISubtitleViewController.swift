@@ -19,7 +19,62 @@ private enum AISubtitleResourceViewState {
   case actionRequired(String)
   case preparing(String, Progress?)
   case unavailable(String)
+  case notReady(String)
   case notRequired(String)
+}
+
+private enum AppleLocalResourceID: Hashable {
+  case speech(String)
+  case translation(source: String, target: String)
+
+  var sourceCode: String {
+    switch self {
+    case .speech(let code), .translation(let code, _): return code
+    }
+  }
+}
+
+private enum AppleLocalResourceStatus {
+  case available
+  case installed
+  case downloading(Progress?)
+  case failed(String)
+}
+
+private struct AppleLocalResourceItem {
+  let id: AppleLocalResourceID
+  let title: String
+  var status: AppleLocalResourceStatus
+}
+
+private final class AISubtitlePlanCardView: NSView {
+  private var cardIsSelected = false
+
+  func configureAppearance() {
+    wantsLayer = true
+    layer?.cornerRadius = 6
+    updateColors()
+  }
+
+  func setSelected(_ selected: Bool) {
+    cardIsSelected = selected
+    updateColors()
+  }
+
+  override func viewDidChangeEffectiveAppearance() {
+    super.viewDidChangeEffectiveAppearance()
+    updateColors()
+  }
+
+  private func updateColors() {
+    effectiveAppearance.applyAppearanceFor {
+      layer?.borderWidth = cardIsSelected ? 2 : 1
+      layer?.borderColor = (cardIsSelected ? NSColor.controlAccentColor : NSColor.separatorColor).cgColor
+      layer?.backgroundColor = cardIsSelected
+        ? NSColor.controlAccentColor.withAlphaComponent(0.035).cgColor
+        : NSColor.controlBackgroundColor.cgColor
+    }
+  }
 }
 
 private final class AISubtitleResourceRowView: NSView {
@@ -111,6 +166,9 @@ private final class AISubtitleResourceRowView: NSView {
     case .unavailable(let detail):
       setIcon(symbol: "exclamationmark.triangle.fill", fallback: NSImage.statusUnavailableName, color: .systemOrange)
       detailLabel.stringValue = detail
+    case .notReady(let detail):
+      setIcon(symbol: "circle", fallback: NSImage.statusPartiallyAvailableName, color: .secondaryLabelColor)
+      detailLabel.stringValue = detail
     case .notRequired(let detail):
       setIcon(symbol: "checkmark.circle", fallback: NSImage.statusAvailableName, color: .secondaryLabelColor)
       detailLabel.stringValue = detail
@@ -142,93 +200,83 @@ final class PrefAISubtitleViewController: PreferenceViewController, PreferenceWi
 
   var preferenceSearchSections: [String: [String]]? {
     return [
-      aiSubtitleLocalized("ai_subtitle.section.defaults", fallback: "Defaults"): [
+      preferenceTabTitle: [
         aiSubtitleLocalized("ai_subtitle.enable_feature", fallback: "Enable AI Subtitles"),
-        aiSubtitleLocalized("ai_subtitle.default_provider", fallback: "Default AI provider"),
         aiSubtitleLocalized("ai_subtitle.provider.apple_option", fallback: "Apple Local AI"),
-        "OpenAI",
-        aiSubtitleLocalized("ai_subtitle.provider.aliyun_option", fallback: "Aliyun"),
+        aiSubtitleLocalized("ai_subtitle.provider.rawya_remote", fallback: "Rawya Remote AI"),
+        aiSubtitleLocalized("ai_subtitle.setup.video_languages", fallback: "Audio languages"),
+        aiSubtitleLocalized("ai_subtitle.setup.subtitle_language", fallback: "Subtitle language"),
+        aiSubtitleLocalized("ai_subtitle.setup.start", fallback: "Start Download"),
         aiSubtitleLocalized("ai_subtitle.auto_mode", fallback: "Automatic generation"),
-        aiSubtitleLocalized("ai_subtitle.default_spoken_language", fallback: "Default audio language"),
+        aiSubtitleLocalized("ai_subtitle.default_spoken_language", fallback: "Audio language"),
         aiSubtitleLocalized("ai_subtitle.default_subtitle_language", fallback: "Default subtitle language")
-      ],
-      aiSubtitleLocalized("ai_subtitle.section.resources", fallback: "Apple Resources"): [
-        aiSubtitleLocalized("ai_subtitle.resource.system", fallback: "macOS compatibility"),
-        aiSubtitleLocalized("ai_subtitle.resource.speech", fallback: "Apple speech model"),
-        aiSubtitleLocalized("ai_subtitle.resource.translation", fallback: "Apple translation languages")
       ]
     ]
   }
 
   private let defaults = UserDefaults.standard
   private let featureSwitch = NSSwitch()
-  private let defaultProviderPopup = NSPopUpButton()
-  private let schemeDescriptionLabel = NSTextField(wrappingLabelWithString: "")
-  private let autoModePopup = NSPopUpButton()
+  private let reminderContainer = NSView()
+  private let reminderLabel = NSTextField(wrappingLabelWithString: "")
+  private let localPlanSelectionButton = NSButton(radioButtonWithTitle: "", target: nil, action: nil)
+  private let remotePlanSelectionButton = NSButton(radioButtonWithTitle: "", target: nil, action: nil)
+  private var autoModeButtons: [NSButton] = []
   private let sourcePopup = NSPopUpButton()
   private let targetPopup = NSPopUpButton()
-  private let openAIKeyField = NSSecureTextField()
-  private let aliyunDashScopeField = NSSecureTextField()
-  private let aliyunAccessKeyIDField = NSTextField()
-  private let aliyunAccessKeySecretField = NSSecureTextField()
-  private let consentButton = NSButton(checkboxWithTitle: "", target: nil, action: nil)
-  private let removeCredentialsButton = NSButton(
-    title: aiSubtitleLocalized("ai_subtitle.remove_credentials", fallback: "Remove Saved Credentials…"),
+  private let preparationTargetPopup = NSPopUpButton()
+  private let preparationSourceLanguagesStack = NSStackView()
+  private var preparationSourceLanguageButtons: [String: NSButton] = [:]
+  private var preparationSourceLanguagesRow: NSView?
+  private let preparationSummaryLabel = NSTextField(wrappingLabelWithString: "")
+  private let prepareLocalPlanButton = NSButton(
+    title: aiSubtitleLocalized("ai_subtitle.setup.start", fallback: "Start Download"),
     target: nil,
     action: nil
   )
-  private let prepareLocalButton = NSButton(
-    title: aiSubtitleLocalized("ai_subtitle.download_required_resources", fallback: "Download Required Resources"),
-    target: nil,
-    action: nil
-  )
-  private let saveRemoteButton = NSButton(
-    title: aiSubtitleLocalized("ai_subtitle.initialize_remote", fallback: "Save and Finish"),
-    target: nil,
-    action: nil
-  )
+  private let preparationProgressIndicator = NSProgressIndicator()
+  private let preparationProgressLabel = NSTextField(labelWithString: "")
+  private let preparationProgressRow = NSStackView()
   private let upgradeButton = NSButton(
     title: aiSubtitleLocalized("ai_subtitle.open_software_update", fallback: "Open Software Update"),
     target: nil,
     action: nil
   )
   private let cacheLimitPopup = NSPopUpButton()
+  private let cacheUsageLabel = NSTextField(labelWithString: "")
+  private var cacheUsageGeneration = 0
   private let statusLabel = NSTextField(wrappingLabelWithString: "")
   private let statusContainer = NSView()
 
   private let systemResourceRow = AISubtitleResourceRowView(
     title: aiSubtitleLocalized("ai_subtitle.resource.system", fallback: "macOS compatibility")
   )
-  private let speechResourceRow = AISubtitleResourceRowView(
-    title: aiSubtitleLocalized("ai_subtitle.resource.speech", fallback: "Apple speech model")
-  )
-  private let translationResourceRow = AISubtitleResourceRowView(
-    title: aiSubtitleLocalized("ai_subtitle.resource.translation", fallback: "Apple translation languages")
-  )
-  private let credentialResourceRow = AISubtitleResourceRowView(
-    title: aiSubtitleLocalized("ai_subtitle.resource.credentials", fallback: "Service credentials")
-  )
-  private let translationCredentialResourceRow = AISubtitleResourceRowView(
-    title: aiSubtitleLocalized("ai_subtitle.resource.translation_credentials", fallback: "Translation credentials")
-  )
-  private let consentResourceRow = AISubtitleResourceRowView(
-    title: aiSubtitleLocalized("ai_subtitle.resource.cloud_consent", fallback: "Cloud processing permission")
-  )
+  private let localPlanStatusIcon = NSImageView()
+  private let localPlanStatusLabel = NSTextField(labelWithString: "")
+  private let remotePlanStatusIcon = NSImageView()
+  private let remotePlanStatusLabel = NSTextField(labelWithString: "")
 
-  private let localSection = NSView()
+  private let localSection = AISubtitlePlanCardView()
   private let localContentStack = NSStackView()
-  private let remoteSection = NSView()
+  private let remoteSection = AISubtitlePlanCardView()
   private let remoteContentStack = NSStackView()
-  private let cloudFieldsStack = NSStackView()
   private let translationHostContainer = NSStackView()
   private var translationPreparationHost: NSView?
-  private var speechCapability: AISubtitleProviderCapability?
-  private var translationCapability: AISubtitleProviderCapability?
   private var resourceProbeTask: Task<Void, Never>?
   private var resourceProbeGeneration = 0
-  private var languageStatusTask: Task<Void, Never>?
-  private var languageStatusGeneration = 0
+  private var batchDownloadTask: Task<Void, Never>?
+  private var speechResourceItems: [AppleLocalResourceItem] = []
+  private var translationResourceItems: [AppleLocalResourceItem] = []
+  private var selectedAppleResources = Set<AppleLocalResourceID>()
+  private var installedSpeechCodes = Set<String>()
+  private var installedTranslationPairs = Set<String>()
+  private var pendingTranslationDownloads: [(source: AISubtitleLanguage, target: AISubtitleLanguage)] = []
   private var isPreparingAppleResources = false
+  private var isCheckingAppleResources = false
+  private var isLocalPlanReady = false
+  private var isRemotePlanReady = false
+  private var preparationErrorMessage: String?
+  private weak var preferenceWindow: NSWindow?
+  private var windowWillCloseObserver: NSObjectProtocol?
 
   override func loadView() {
     view = NSView(frame: NSRect(x: 0, y: 0, width: 760, height: 1))
@@ -237,26 +285,44 @@ final class PrefAISubtitleViewController: PreferenceViewController, PreferenceWi
 
   override func viewDidLoad() {
     super.viewDidLoad()
+    windowWillCloseObserver = NotificationCenter.default.addObserver(
+      forName: NSWindow.willCloseNotification,
+      object: nil,
+      queue: .main
+    ) { [weak self] notification in
+      self?.preferenceWindowWillClose(notification)
+    }
+    isLocalPlanReady = AISubtitleInitializationState().isPrepared(.apple)
     buildUI()
     restoreSelections()
-    refreshAll(syncCloudConsent: true)
+    refreshAll()
   }
 
   deinit {
     resourceProbeTask?.cancel()
-    languageStatusTask?.cancel()
+    batchDownloadTask?.cancel()
+    if let windowWillCloseObserver {
+      NotificationCenter.default.removeObserver(windowWillCloseObserver)
+    }
   }
 
   func preferenceViewDidOpen() {
+    preferenceWindow = view.window
     restoreSelections()
-    refreshAll(syncCloudConsent: true)
+    refreshAll()
+  }
+
+  private func preferenceWindowWillClose(_ notification: Notification) {
+    guard let closingWindow = notification.object as? NSWindow,
+          closingWindow === preferenceWindow else { return }
+    clearPendingPreparationSelection()
   }
 
   private func buildUI() {
     let root = NSStackView()
     root.orientation = .vertical
     root.alignment = .leading
-    root.spacing = 16
+    root.spacing = 14
     root.detachesHiddenViews = true
     root.translatesAutoresizingMaskIntoConstraints = false
     view.addSubview(root)
@@ -268,24 +334,62 @@ final class PrefAISubtitleViewController: PreferenceViewController, PreferenceWi
       root.bottomAnchor.constraint(equalTo: view.bottomAnchor)
     ])
 
+    configureReminder()
     root.addArrangedSubview(buildFeatureToggleSection())
     root.addArrangedSubview(NSBox.horizontalLine())
-    root.addArrangedSubview(buildDefaultsSection())
-    root.addArrangedSubview(NSBox.horizontalLine())
+
     configureLocalSection()
     root.addArrangedSubview(localSection)
     configureRemoteSection()
     root.addArrangedSubview(remoteSection)
-    configureStatusContainer()
-    root.addArrangedSubview(statusContainer)
+    root.addArrangedSubview(NSBox.horizontalLine())
+    root.addArrangedSubview(buildAutomationSection())
+    root.addArrangedSubview(NSBox.horizontalLine())
+    root.addArrangedSubview(buildLanguageSection())
     root.addArrangedSubview(NSBox.horizontalLine())
     root.addArrangedSubview(buildStorageSection())
+
+    configureStatusContainer()
+    root.addArrangedSubview(statusContainer)
     root.addArrangedSubview(NSBox.horizontalLine())
     root.addArrangedSubview(buildDisclaimer())
 
     root.views.forEach { arrangedView in
       arrangedView.widthAnchor.constraint(equalTo: root.widthAnchor).isActive = true
     }
+  }
+
+  private func configureReminder() {
+    reminderContainer.wantsLayer = true
+    reminderContainer.layer?.cornerRadius = 6
+    reminderContainer.layer?.backgroundColor = NSColor.systemYellow.withAlphaComponent(0.10).cgColor
+    reminderContainer.isHidden = true
+
+    reminderLabel.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+    reminderLabel.maximumNumberOfLines = 0
+    reminderLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+    let icon = NSImageView()
+    if #available(macOS 11.0, *) {
+      icon.image = NSImage(systemSymbolName: "exclamationmark.circle", accessibilityDescription: nil)
+    } else {
+      icon.image = NSImage(named: NSImage.statusPartiallyAvailableName)
+    }
+    icon.contentTintColor = .systemOrange
+    let row = NSStackView(views: [icon, reminderLabel])
+    row.orientation = .horizontal
+    row.alignment = .centerY
+    row.spacing = 10
+    row.translatesAutoresizingMaskIntoConstraints = false
+    reminderContainer.addSubview(row)
+    NSLayoutConstraint.activate([
+      icon.widthAnchor.constraint(equalToConstant: 16),
+      icon.heightAnchor.constraint(equalToConstant: 16),
+      row.leadingAnchor.constraint(equalTo: reminderContainer.leadingAnchor, constant: 12),
+      row.trailingAnchor.constraint(equalTo: reminderContainer.trailingAnchor, constant: -10),
+      row.topAnchor.constraint(equalTo: reminderContainer.topAnchor, constant: 8),
+      row.bottomAnchor.constraint(equalTo: reminderContainer.bottomAnchor, constant: -8)
+    ])
   }
 
   private func buildFeatureToggleSection() -> NSView {
@@ -297,20 +401,29 @@ final class PrefAISubtitleViewController: PreferenceViewController, PreferenceWi
 
     featureSwitch.target = self
     featureSwitch.action = #selector(featureEnabledChanged(_:))
+    featureSwitch.setAccessibilityLabel(title.stringValue)
 
-    let row = NSStackView(views: [featureSwitch, title])
-    row.orientation = .horizontal
-    row.alignment = .centerY
-    row.spacing = 12
-    row.translatesAutoresizingMaskIntoConstraints = false
+    let toggleRow = NSStackView(views: [featureSwitch, title])
+    toggleRow.orientation = .horizontal
+    toggleRow.alignment = .centerY
+    toggleRow.spacing = 12
+
+    let stack = NSStackView(views: [toggleRow, reminderContainer])
+    stack.orientation = .vertical
+    stack.alignment = .leading
+    stack.spacing = 8
+    stack.detachesHiddenViews = true
+    stack.translatesAutoresizingMaskIntoConstraints = false
 
     let container = NSView()
-    container.addSubview(row)
+    container.addSubview(stack)
     NSLayoutConstraint.activate([
-      row.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-      row.topAnchor.constraint(equalTo: container.topAnchor, constant: 8),
-      row.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -8),
-      row.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor)
+      stack.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+      stack.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+      stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 8),
+      stack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -8),
+      toggleRow.widthAnchor.constraint(equalTo: stack.widthAnchor),
+      reminderContainer.widthAnchor.constraint(equalTo: stack.widthAnchor)
     ])
     return container
   }
@@ -328,7 +441,7 @@ final class PrefAISubtitleViewController: PreferenceViewController, PreferenceWi
     let container = NSView()
     container.addSubview(label)
     NSLayoutConstraint.activate([
-      label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 120),
+      label.leadingAnchor.constraint(equalTo: container.leadingAnchor),
       label.trailingAnchor.constraint(equalTo: container.trailingAnchor),
       label.topAnchor.constraint(equalTo: container.topAnchor),
       label.bottomAnchor.constraint(equalTo: container.bottomAnchor)
@@ -336,70 +449,135 @@ final class PrefAISubtitleViewController: PreferenceViewController, PreferenceWi
     return container
   }
 
-  private func buildDefaultsSection() -> NSView {
-    let section = sectionStack(title: aiSubtitleLocalized("ai_subtitle.section.defaults", fallback: "Defaults"),
-                               identifier: "SectionTitleAISubtitleDefaults")
-    for provider in [AISubtitleProviderID.apple, .openAI, .aliyun] {
-      let title = providerOptionTitle(provider)
-      let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-      item.representedObject = provider.rawValue
-      defaultProviderPopup.menu?.addItem(item)
+  private func buildAutomationSection() -> NSView {
+    let section = sectionStack(title: aiSubtitleLocalized(
+      "ai_subtitle.section.automation",
+      fallback: "Generation"
+    ), identifier: "SectionTitleAISubtitleAutomation")
+    let options: [(AISubtitleAutoMode, String, String)] = [
+      (.always,
+       aiSubtitleLocalized("ai_subtitle.auto.always",
+                           fallback: "Generate automatically using default languages"),
+       aiSubtitleLocalized("ai_subtitle.auto.always_description",
+                           fallback: "Best for videos usually in the same language. Starts when a video opens.")),
+      (.whenMissing,
+       aiSubtitleLocalized("ai_subtitle.auto.when_missing",
+                           fallback: "Use default languages when subtitles are missing"),
+       aiSubtitleLocalized("ai_subtitle.auto.when_missing_description",
+                           fallback: "Uses existing subtitles first and generates only when none are available.")),
+      (.confirmLanguage,
+       aiSubtitleLocalized("ai_subtitle.auto.confirm_language",
+                           fallback: "Generate after confirming languages"),
+       aiSubtitleLocalized("ai_subtitle.auto.confirm_language_description",
+                           fallback: "Best when switching between video languages. Confirm the audio language to start.")),
+      (.manual,
+       aiSubtitleLocalized("ai_subtitle.auto.manual",
+                           fallback: "Generate manually only"),
+       aiSubtitleLocalized("ai_subtitle.auto.manual_description",
+                           fallback: "Best for occasional use. Start AI subtitles only when needed."))
+    ]
+    var optionViews: [NSView] = []
+    autoModeButtons = options.map { mode, title, description in
+      let button = NSButton(radioButtonWithTitle: title,
+                            target: self,
+                            action: #selector(autoModeChanged(_:)))
+      button.tag = mode.rawValue
+      button.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+      if let cell = button.cell as? NSButtonCell {
+        cell.lineBreakMode = .byWordWrapping
+        cell.wraps = true
+      }
+      let descriptionLabel = NSTextField(wrappingLabelWithString: description)
+      descriptionLabel.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+      descriptionLabel.textColor = .secondaryLabelColor
+      descriptionLabel.maximumNumberOfLines = 0
+      descriptionLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+      let optionStack = NSStackView(views: [button, descriptionLabel])
+      optionStack.orientation = .vertical
+      optionStack.alignment = .leading
+      optionStack.spacing = 2
+      descriptionLabel.leadingAnchor.constraint(equalTo: optionStack.leadingAnchor, constant: 22).isActive = true
+      descriptionLabel.trailingAnchor.constraint(equalTo: optionStack.trailingAnchor).isActive = true
+      optionViews.append(optionStack)
+      return button
     }
-    defaultProviderPopup.target = self
-    defaultProviderPopup.action = #selector(defaultProviderChanged(_:))
-    section.content.addArrangedSubview(formRow(
-      label: aiSubtitleLocalized("ai_subtitle.default_provider", fallback: "AI provider"),
-      control: defaultProviderPopup
-    ))
+    let controls = NSStackView(views: optionViews)
+    controls.orientation = .vertical
+    controls.alignment = .leading
+    controls.spacing = 10
+    optionViews.forEach { $0.widthAnchor.constraint(equalTo: controls.widthAnchor).isActive = true }
+    let row = formRow(label: "", control: controls, alignment: .top)
+    section.content.addArrangedSubview(row)
+    row.widthAnchor.constraint(equalTo: section.content.widthAnchor).isActive = true
+    controls.trailingAnchor.constraint(equalTo: row.trailingAnchor).isActive = true
+    return section.container
+  }
 
-    schemeDescriptionLabel.textColor = .secondaryLabelColor
-    schemeDescriptionLabel.maximumNumberOfLines = 2
-    section.content.addArrangedSubview(schemeDescriptionLabel)
-    schemeDescriptionLabel.widthAnchor.constraint(equalTo: section.content.widthAnchor).isActive = true
-
-    upgradeButton.target = self
-    upgradeButton.action = #selector(openSoftwareUpdate(_:))
-    upgradeButton.isHidden = true
-    section.content.addArrangedSubview(upgradeButton)
-
-    autoModePopup.addItems(withTitles: [
-      aiSubtitleLocalized("ai_subtitle.auto.always", fallback: "Always generate automatically"),
-      aiSubtitleLocalized("ai_subtitle.auto.when_missing", fallback: "Generate when subtitles are missing"),
-      aiSubtitleLocalized("ai_subtitle.auto.manual", fallback: "Manual only")
-    ])
-    autoModePopup.target = self
-    autoModePopup.action = #selector(autoModeChanged(_:))
-    section.content.addArrangedSubview(formRow(
-      label: aiSubtitleLocalized("ai_subtitle.auto_mode", fallback: "Automatic generation"),
-      control: autoModePopup
-    ))
-
-    configureLanguagePopup(sourcePopup, options: AISubtitleLanguageCatalog.sourceLanguages)
-    configureLanguagePopup(targetPopup, options: AISubtitleLanguageCatalog.targetLanguages)
+  private func buildLanguageSection() -> NSView {
+    let section = sectionStack(title: aiSubtitleLocalized(
+      "ai_subtitle.section.languages",
+      fallback: "Default Languages"
+    ), identifier: "SectionTitleAISubtitleLanguages")
     sourcePopup.target = self
     sourcePopup.action = #selector(languageChanged(_:))
     targetPopup.target = self
     targetPopup.action = #selector(languageChanged(_:))
-    section.content.addArrangedSubview(formRow(
-      label: aiSubtitleLocalized("ai_subtitle.default_spoken_language", fallback: "Audio language"),
-      control: sourcePopup
-    ))
+    sourcePopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 140).isActive = true
+    targetPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 140).isActive = true
     section.content.addArrangedSubview(formRow(
       label: aiSubtitleLocalized("ai_subtitle.default_subtitle_language", fallback: "Subtitle language"),
       control: targetPopup
+    ))
+    section.content.addArrangedSubview(formRow(
+      label: aiSubtitleLocalized("ai_subtitle.default_spoken_language", fallback: "Audio language"),
+      control: sourcePopup
     ))
     return section.container
   }
 
   private func configureLocalSection() {
-    configureSection(localSection,
-                     content: localContentStack,
-                     title: aiSubtitleLocalized("ai_subtitle.section.resources", fallback: "Apple Resources"),
-                     identifier: "SectionTitleAISubtitleResources")
-    [systemResourceRow, speechResourceRow, translationResourceRow].forEach {
-      localContentStack.addArrangedSubview($0)
-      $0.widthAnchor.constraint(equalTo: localContentStack.widthAnchor).isActive = true
-    }
+    localPlanSelectionButton.target = self
+    localPlanSelectionButton.action = #selector(defaultSchemeChanged(_:))
+    localPlanSelectionButton.tag = 0
+    configurePlanCard(localSection,
+                      content: localContentStack,
+                      selectionButton: localPlanSelectionButton,
+                      title: aiSubtitleLocalized("ai_subtitle.provider.apple_option", fallback: "Apple Local AI"),
+                      description: aiSubtitleLocalized(
+                        "ai_subtitle.plan.apple_description",
+                        fallback: "Runs on this Mac. Audio is not uploaded."
+                      ),
+                      identifier: "SectionTitleAISubtitleResources",
+                      statusIcon: localPlanStatusIcon,
+                      statusLabel: localPlanStatusLabel)
+    systemResourceRow.isHidden = true
+    localContentStack.addArrangedSubview(systemResourceRow)
+    systemResourceRow.widthAnchor.constraint(equalTo: localContentStack.widthAnchor).isActive = true
+
+    configureLanguagePopup(preparationTargetPopup, options: AISubtitleLanguageCatalog.targetLanguages)
+    preparationTargetPopup.target = self
+    preparationTargetPopup.action = #selector(preparationTargetChanged(_:))
+    let targetLanguageRow = formRow(
+      label: aiSubtitleLocalized("ai_subtitle.setup.subtitle_language", fallback: "Subtitle language"),
+      control: preparationTargetPopup
+    )
+    localContentStack.addArrangedSubview(targetLanguageRow)
+    targetLanguageRow.widthAnchor.constraint(equalTo: localContentStack.widthAnchor).isActive = true
+
+    configurePreparationSourceLanguageChoices()
+    let sourceLanguagesRow = formRow(
+      label: aiSubtitleLocalized("ai_subtitle.setup.video_languages", fallback: "Audio languages"),
+      control: preparationSourceLanguagesStack,
+      alignment: .top
+    )
+    preparationSourceLanguagesRow = sourceLanguagesRow
+    localContentStack.addArrangedSubview(sourceLanguagesRow)
+    sourceLanguagesRow.widthAnchor.constraint(equalTo: localContentStack.widthAnchor).isActive = true
+
+    upgradeButton.target = self
+    upgradeButton.action = #selector(openSoftwareUpdate(_:))
+    upgradeButton.isHidden = true
+    localContentStack.addArrangedSubview(upgradeButton)
 
     translationHostContainer.orientation = .vertical
     translationHostContainer.alignment = .leading
@@ -408,57 +586,207 @@ final class PrefAISubtitleViewController: PreferenceViewController, PreferenceWi
     localContentStack.addArrangedSubview(translationHostContainer)
     translationHostContainer.widthAnchor.constraint(equalTo: localContentStack.widthAnchor).isActive = true
 
-    prepareLocalButton.target = self
-    prepareLocalButton.action = #selector(prepareLocalAI(_:))
-    prepareLocalButton.isHidden = true
-    localContentStack.addArrangedSubview(prepareLocalButton)
+    preparationProgressIndicator.style = .spinning
+    preparationProgressIndicator.controlSize = .small
+    preparationProgressIndicator.isDisplayedWhenStopped = false
+    preparationProgressLabel.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+    preparationProgressLabel.textColor = .secondaryLabelColor
+    preparationProgressRow.orientation = .horizontal
+    preparationProgressRow.alignment = .centerY
+    preparationProgressRow.spacing = 8
+    preparationProgressRow.addArrangedSubview(preparationProgressIndicator)
+    preparationProgressRow.addArrangedSubview(preparationProgressLabel)
+    preparationProgressRow.isHidden = true
+    localContentStack.addArrangedSubview(preparationProgressRow)
+
+    preparationSummaryLabel.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+    preparationSummaryLabel.textColor = .secondaryLabelColor
+    preparationSummaryLabel.maximumNumberOfLines = 0
+    preparationSummaryLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    prepareLocalPlanButton.target = self
+    prepareLocalPlanButton.action = #selector(prepareSelectedLocalPlan(_:))
+    let footerSpacer = NSView()
+    footerSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+    let footer = NSStackView(views: [preparationSummaryLabel, footerSpacer, prepareLocalPlanButton])
+    footer.orientation = .horizontal
+    footer.alignment = .centerY
+    footer.spacing = 10
+    localContentStack.addArrangedSubview(footer)
+    footer.widthAnchor.constraint(equalTo: localContentStack.widthAnchor).isActive = true
+    refreshPreparationState()
+  }
+
+  private func configurePreparationSourceLanguageChoices() {
+    preparationSourceLanguagesStack.orientation = .vertical
+    preparationSourceLanguagesStack.alignment = .leading
+    preparationSourceLanguagesStack.spacing = 6
+    preparationSourceLanguagesStack.widthAnchor.constraint(greaterThanOrEqualToConstant: 460).isActive = true
+  }
+
+  private func rebuildPreparationSourceLanguageChoices() {
+    preparationSourceLanguagesStack.arrangedSubviews.forEach {
+      preparationSourceLanguagesStack.removeArrangedSubview($0)
+      $0.removeFromSuperview()
+    }
+    preparationSourceLanguageButtons.removeAll()
+
+    guard let targetLanguage = selectedPreparationTargetLanguage else { return }
+    let options = AISubtitleLanguageCatalog.sourceLanguages.compactMap { option -> (String, String)? in
+      guard let code = option.code,
+            speechResourceItems.contains(where: { $0.id == .speech(code) }) else { return nil }
+      let sourceLanguage = AISubtitleLanguage(code)
+      guard sourceLanguage.isEquivalent(to: targetLanguage)
+        || translationResourceItems.contains(where: {
+          $0.id == .translation(source: code, target: targetLanguage.code)
+        }) else { return nil }
+      return (code, option.title)
+    }
+    let columnCount = 3
+    for startIndex in stride(from: 0, to: options.count, by: columnCount) {
+      let row = NSStackView()
+      row.orientation = .horizontal
+      row.alignment = .centerY
+      row.distribution = .fillEqually
+      row.spacing = 12
+      for column in 0..<columnCount {
+        let index = startIndex + column
+        if index < options.count {
+          let (code, title) = options[index]
+          if preparationCombinationIsInstalled(sourceCode: code, targetLanguage: targetLanguage) {
+            row.addArrangedSubview(supportedPreparationLanguageView(title: title))
+          } else {
+            let button = NSButton(checkboxWithTitle: title,
+                                  target: self,
+                                  action: #selector(preparationSourceLanguageChanged(_:)))
+            button.identifier = NSUserInterfaceItemIdentifier(code)
+            button.setAccessibilityLabel(title)
+            preparationSourceLanguageButtons[code] = button
+            row.addArrangedSubview(button)
+          }
+        } else {
+          row.addArrangedSubview(NSView())
+        }
+      }
+      preparationSourceLanguagesStack.addArrangedSubview(row)
+      row.widthAnchor.constraint(equalTo: preparationSourceLanguagesStack.widthAnchor).isActive = true
+    }
+    let footnote = NSTextField(wrappingLabelWithString: aiSubtitleLocalized(
+      "ai_subtitle.setup.supported_languages_only",
+      fallback: "Only languages supported by this Mac are shown."
+    ))
+    footnote.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+    footnote.textColor = .secondaryLabelColor
+    footnote.maximumNumberOfLines = 0
+    preparationSourceLanguagesStack.addArrangedSubview(footnote)
+  }
+
+  private func supportedPreparationLanguageView(title: String) -> NSView {
+    let icon = NSImageView()
+    let supported = aiSubtitleLocalized("ai_subtitle.plan.prepared", fallback: "Supported")
+    if #available(macOS 11.0, *) {
+      icon.image = NSImage(systemSymbolName: "checkmark.circle.fill",
+                           accessibilityDescription: supported)
+    } else {
+      icon.image = NSImage(named: NSImage.statusAvailableName)
+    }
+    icon.contentTintColor = .systemGreen
+    icon.imageScaling = .scaleProportionallyDown
+    icon.widthAnchor.constraint(equalToConstant: 16).isActive = true
+    icon.heightAnchor.constraint(equalToConstant: 16).isActive = true
+    let label = NSTextField(labelWithString: title)
+    let row = NSStackView(views: [icon, label])
+    row.orientation = .horizontal
+    row.alignment = .centerY
+    row.spacing = 5
+    row.setAccessibilityElement(true)
+    row.setAccessibilityLabel("\(title), \(supported)")
+    return row
+  }
+
+  private func preparationCombinationIsInstalled(sourceCode: String,
+                                                  targetLanguage: AISubtitleLanguage) -> Bool {
+    AISubtitlePreparedLanguageStore.isPrepared(
+      source: sourceCode,
+      target: targetLanguage.code,
+      speechLanguageCodes: installedSpeechCodes,
+      translationPairs: installedTranslationPairs
+    )
   }
 
   private func configureRemoteSection() {
-    configureSection(remoteSection,
-                     content: remoteContentStack,
-                     title: aiSubtitleLocalized("ai_subtitle.section.remote", fallback: "Remote Service"),
-                     identifier: "SectionTitleAISubtitleRemote")
+    remotePlanSelectionButton.target = self
+    remotePlanSelectionButton.action = #selector(defaultSchemeChanged(_:))
+    remotePlanSelectionButton.tag = 1
+    configurePlanCard(remoteSection,
+                      content: remoteContentStack,
+                      selectionButton: remotePlanSelectionButton,
+                      title: aiSubtitleLocalized("ai_subtitle.provider.rawya_remote", fallback: "Rawya Remote AI"),
+                      description: aiSubtitleLocalized(
+                        "ai_subtitle.plan.remote_description",
+                        fallback: "More languages and higher-quality translation."
+                      ),
+                      identifier: "SectionTitleAISubtitleRemote",
+                      statusIcon: remotePlanStatusIcon,
+                      statusLabel: remotePlanStatusLabel)
+    setPlanHeader(icon: remotePlanStatusIcon,
+                  label: remotePlanStatusLabel,
+                  prepared: false,
+                  text: aiSubtitleLocalized("ai_subtitle.plan.remote_pending", fallback: "Not Available Yet"))
+  }
 
-    cloudFieldsStack.orientation = .vertical
-    cloudFieldsStack.alignment = .leading
-    cloudFieldsStack.spacing = 8
-    openAIKeyField.placeholderString = aiSubtitleLocalized(
-      "ai_subtitle.openai_key_placeholder",
-      fallback: "OpenAI API key (leave blank to keep the saved key)"
-    )
-    aliyunDashScopeField.placeholderString = aiSubtitleLocalized(
-      "ai_subtitle.aliyun_model_key_placeholder",
-      fallback: "Model Studio API key"
-    )
-    aliyunAccessKeyIDField.placeholderString = aiSubtitleLocalized(
-      "ai_subtitle.aliyun_access_key_id_placeholder",
-      fallback: "Machine Translation AccessKey ID"
-    )
-    aliyunAccessKeySecretField.placeholderString = aiSubtitleLocalized(
-      "ai_subtitle.aliyun_access_key_secret_placeholder",
-      fallback: "Machine Translation AccessKey Secret"
-    )
-    [openAIKeyField, aliyunDashScopeField, aliyunAccessKeyIDField, aliyunAccessKeySecretField].forEach {
-      cloudFieldsStack.addArrangedSubview($0)
-      $0.widthAnchor.constraint(equalToConstant: 430).isActive = true
-    }
-    consentButton.target = self
-    consentButton.action = #selector(consentChanged(_:))
-    cloudFieldsStack.addArrangedSubview(consentButton)
-    removeCredentialsButton.target = self
-    removeCredentialsButton.action = #selector(removeCloudCredentials(_:))
-    cloudFieldsStack.addArrangedSubview(removeCredentialsButton)
-    remoteContentStack.addArrangedSubview(cloudFieldsStack)
+  private func configurePlanCard(_ container: AISubtitlePlanCardView,
+                                 content: NSStackView,
+                                 selectionButton: NSButton,
+                                 title: String,
+                                 description: String,
+                                 identifier: String,
+                                 statusIcon: NSImageView,
+                                 statusLabel: NSTextField) {
+    container.configureAppearance()
 
-    [credentialResourceRow, translationCredentialResourceRow, consentResourceRow].forEach {
-      remoteContentStack.addArrangedSubview($0)
-      $0.widthAnchor.constraint(equalTo: remoteContentStack.widthAnchor).isActive = true
-    }
+    content.orientation = .vertical
+    content.alignment = .leading
+    content.spacing = 12
+    content.detachesHiddenViews = true
+    content.translatesAutoresizingMaskIntoConstraints = false
 
-    saveRemoteButton.target = self
-    saveRemoteButton.action = #selector(saveRemoteAI(_:))
-    remoteContentStack.addArrangedSubview(saveRemoteButton)
+    selectionButton.title = title
+    selectionButton.identifier = NSUserInterfaceItemIdentifier(identifier)
+    selectionButton.font = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
+    let descriptionLabel = NSTextField(wrappingLabelWithString: description)
+    descriptionLabel.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+    descriptionLabel.textColor = .secondaryLabelColor
+    descriptionLabel.maximumNumberOfLines = 2
+    let titleStack = NSStackView(views: [selectionButton, descriptionLabel])
+    titleStack.orientation = .vertical
+    titleStack.alignment = .leading
+    titleStack.spacing = 3
+    selectionButton.setAccessibilityLabel(title)
+    selectionButton.setContentHuggingPriority(.required, for: .horizontal)
+    let spacer = NSView()
+    spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+    statusIcon.imageScaling = .scaleProportionallyDown
+    statusLabel.font = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
+    let header = NSStackView(views: [titleStack, spacer, statusIcon, statusLabel])
+    header.orientation = .horizontal
+    header.alignment = .centerY
+    header.spacing = 10
+    header.translatesAutoresizingMaskIntoConstraints = false
+
+    container.addSubview(header)
+    container.addSubview(content)
+    NSLayoutConstraint.activate([
+      statusIcon.widthAnchor.constraint(equalToConstant: 16),
+      statusIcon.heightAnchor.constraint(equalToConstant: 16),
+      titleStack.widthAnchor.constraint(greaterThanOrEqualToConstant: 300),
+      header.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 14),
+      header.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -14),
+      header.topAnchor.constraint(equalTo: container.topAnchor, constant: 12),
+      content.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 14),
+      content.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -14),
+      content.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 12),
+      content.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -14)
+    ])
   }
 
   private func buildStorageSection() -> NSView {
@@ -466,12 +794,19 @@ final class PrefAISubtitleViewController: PreferenceViewController, PreferenceWi
                                identifier: "SectionTitleAISubtitleStorage")
     let description = NSTextField(wrappingLabelWithString: aiSubtitleLocalized(
       "ai_subtitle.cache_description",
-      fallback: "Stores generation progress and results so work can resume without starting over. Clearing the cache does not delete subtitle files saved beside videos."
+      fallback: "Clearing the cache does not delete subtitle files saved beside videos."
     ))
     description.textColor = .secondaryLabelColor
-    description.maximumNumberOfLines = 2
+    description.maximumNumberOfLines = 0
     section.content.addArrangedSubview(description)
     description.widthAnchor.constraint(equalTo: section.content.widthAnchor).isActive = true
+
+    cacheUsageLabel.font = NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize,
+                                                            weight: .regular)
+    section.content.addArrangedSubview(formRow(
+      label: aiSubtitleLocalized("ai_subtitle.cache_usage", fallback: "Currently used"),
+      control: cacheUsageLabel
+    ))
 
     let cacheLimits: [(String, Int64)] = [
       ("512 MB", 512 * 1024 * 1024),
@@ -510,7 +845,7 @@ final class PrefAISubtitleViewController: PreferenceViewController, PreferenceWi
     statusContainer.addSubview(statusLabel)
     statusContainer.isHidden = true
     NSLayoutConstraint.activate([
-      statusLabel.leadingAnchor.constraint(equalTo: statusContainer.leadingAnchor, constant: 120),
+      statusLabel.leadingAnchor.constraint(equalTo: statusContainer.leadingAnchor),
       statusLabel.trailingAnchor.constraint(equalTo: statusContainer.trailingAnchor),
       statusLabel.topAnchor.constraint(equalTo: statusContainer.topAnchor),
       statusLabel.bottomAnchor.constraint(equalTo: statusContainer.bottomAnchor)
@@ -544,7 +879,7 @@ final class PrefAISubtitleViewController: PreferenceViewController, PreferenceWi
     content.spacing = 10
     content.detachesHiddenViews = true
     content.translatesAutoresizingMaskIntoConstraints = false
-    let titleLabel = NSTextField(labelWithString: "\(title):")
+    let titleLabel = NSTextField(labelWithString: title)
     titleLabel.identifier = NSUserInterfaceItemIdentifier(identifier)
     titleLabel.font = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
     titleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -553,22 +888,24 @@ final class PrefAISubtitleViewController: PreferenceViewController, PreferenceWi
 
     NSLayoutConstraint.activate([
       titleLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-      titleLabel.topAnchor.constraint(equalTo: container.topAnchor, constant: 7),
-      titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: content.leadingAnchor, constant: -12),
-      content.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 120),
+      titleLabel.topAnchor.constraint(equalTo: container.topAnchor),
+      titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor),
+      content.leadingAnchor.constraint(equalTo: container.leadingAnchor),
       content.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-      content.topAnchor.constraint(equalTo: container.topAnchor),
+      content.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 10),
       content.bottomAnchor.constraint(equalTo: container.bottomAnchor)
     ])
   }
 
-  private func formRow(label: String, control: NSView) -> NSView {
+  private func formRow(label: String,
+                       control: NSView,
+                       alignment: NSLayoutConstraint.Attribute = .centerY) -> NSView {
     let labelView = NSTextField(labelWithString: label)
     labelView.alignment = .right
-    labelView.widthAnchor.constraint(equalToConstant: 120).isActive = true
+    labelView.widthAnchor.constraint(equalToConstant: 160).isActive = true
     let row = NSStackView(views: [labelView, control])
     row.orientation = .horizontal
-    row.alignment = .centerY
+    row.alignment = alignment
     row.spacing = 14
     return row
   }
@@ -582,22 +919,27 @@ final class PrefAISubtitleViewController: PreferenceViewController, PreferenceWi
   }
 
   private func restoreSelections() {
-    autoModePopup.selectItem(at: AISubtitleAutoMode.current.rawValue)
-    let provider = configuredProvider
-    if let providerIndex = defaultProviderPopup.itemArray.firstIndex(where: {
-      ($0.representedObject as? String) == provider.rawValue
-    }) {
-      defaultProviderPopup.selectItem(at: providerIndex)
-    }
-    selectLanguage(defaults.string(forKey: "aiSubtitle.sourceLanguage"), in: sourcePopup)
-    selectLanguage(defaults.string(forKey: "aiSubtitle.targetLanguage")
+    refreshAutoModeSelection()
+    selectLanguage(defaults.string(forKey: "aiSubtitle.preparationTargetLanguage")
+      ?? defaults.string(forKey: "aiSubtitle.resourceTargetLanguage")
+      ?? defaults.string(forKey: "aiSubtitle.targetLanguage")
       ?? Locale.preferredLanguages.first,
-                   in: targetPopup)
+                   in: preparationTargetPopup)
+    clearPendingPreparationSelection()
     let configuredLimit = AISubtitleCachePolicy().maximumBytes
     let selectedLimit = cacheLimitPopup.itemArray.firstIndex {
       ($0.representedObject as? NSNumber)?.int64Value == configuredLimit
     } ?? 2
     cacheLimitPopup.selectItem(at: selectedLimit)
+    refreshCacheUsage()
+  }
+
+  private func clearPendingPreparationSelection() {
+    defaults.removeObject(forKey: "aiSubtitle.preparationSourceLanguages")
+    preparationSourceLanguageButtons.values.forEach { $0.state = .off }
+    preparationErrorMessage = nil
+    selectedAppleResources = []
+    refreshPreparationState()
   }
 
   private func selectLanguage(_ code: String?, in popup: NSPopUpButton) {
@@ -616,214 +958,380 @@ final class PrefAISubtitleViewController: PreferenceViewController, PreferenceWi
     popup.selectItem(at: exact ?? primary ?? 0)
   }
 
-  private func refreshAll(syncCloudConsent: Bool = false) {
-    let supported = AISubtitleSystemSupport.isSupported
-    let featureEnabled = AISubtitleFeatureState().isEnabled
-    let provider = configuredProvider
-    let remote = provider.isCloudProvider
-    if let providerIndex = defaultProviderPopup.itemArray.firstIndex(where: {
-      ($0.representedObject as? String) == provider.rawValue
-    }) {
-      defaultProviderPopup.selectItem(at: providerIndex)
-    }
-    localSection.isHidden = remote
-    remoteSection.isHidden = !remote
-    upgradeButton.isHidden = supported
-    featureSwitch.state = featureEnabled ? .on : .off
-    featureSwitch.isEnabled = supported
-
-    schemeDescriptionLabel.stringValue = remote
-      ? String(format: aiSubtitleLocalized("ai_subtitle.setup_remote_provider_description",
-                                           fallback: "Audio and subtitle text are sent to %@ for processing."),
-               providerServiceName(provider))
-      : aiSubtitleLocalized("ai_subtitle.setup_local_description",
-                            fallback: "Runs on this Mac with Apple speech and translation. Video audio is not uploaded.")
-
-    let configurationEnabled = supported && featureEnabled
-    [defaultProviderPopup, autoModePopup, sourcePopup, targetPopup,
-     openAIKeyField, aliyunDashScopeField, aliyunAccessKeyIDField,
-     aliyunAccessKeySecretField, consentButton, saveRemoteButton].forEach { $0.isEnabled = configurationEnabled }
-
-    refreshLanguageDownloadIndicators(provider: provider)
-
-    if remote {
-      refreshRemoteControls(syncCloudConsent: syncCloudConsent)
-    } else {
-      refreshAppleResourceStatus()
-    }
+  private func refreshAll() {
+    upgradeButton.isHidden = AISubtitleSystemSupport.isSupported
+    refreshAppleResourceInventory()
+    refreshSchemeAvailability()
   }
 
-  private func refreshRemoteControls(syncCloudConsent: Bool) {
-    let provider = selectedRemoteProvider
-    openAIKeyField.isHidden = provider != .openAI
-    aliyunDashScopeField.isHidden = provider != .aliyun
-    aliyunAccessKeyIDField.isHidden = provider != .aliyun
-    aliyunAccessKeySecretField.isHidden = provider != .aliyun
-    removeCredentialsButton.isHidden = !AISubtitleKeychainCredentialChecker().hasCredential(for: provider)
-    if syncCloudConsent {
-      consentButton.state = UserDefaultsAISubtitleCloudConsentStore().hasConsent(for: provider) ? .on : .off
-    }
-    consentButton.title = provider == .aliyun
-      ? aiSubtitleLocalized("ai_subtitle.aliyun_upload_consent",
-                            fallback: "Upload audio (kept up to 48h) and subtitle text to Aliyun")
-      : aiSubtitleLocalized("ai_subtitle.openai_upload_consent",
-                            fallback: "Allow uploading audio and subtitle text to OpenAI")
-
-    let hasCredential = AISubtitleKeychainCredentialChecker().hasCredential(for: provider)
-    credentialResourceRow.setState(hasCredential
-      ? .ready(String(format: aiSubtitleLocalized("ai_subtitle.resource.saved_in_keychain", fallback: "%@ credentials are saved in Keychain"), providerServiceName(provider)))
-      : .actionRequired(String(format: aiSubtitleLocalized("ai_subtitle.resource.credentials_required", fallback: "Enter and save %@ credentials"), providerServiceName(provider))))
-
-    if provider == .openAI {
-      translationCredentialResourceRow.setState(.notRequired(
-        aiSubtitleLocalized("ai_subtitle.resource.openai_translation_credential_shared",
-                            fallback: "Uses the same OpenAI API key as transcription")
-      ))
-    } else if translationRequired {
-      let aliyun = AISubtitleAliyunKeychainCredentialProvider().credentials()
-      let hasTranslationCredentials = !(aliyun.machineTranslationAccessKeyID?.isEmpty ?? true)
-        && !(aliyun.machineTranslationAccessKeySecret?.isEmpty ?? true)
-      translationCredentialResourceRow.setState(hasTranslationCredentials
-        ? .ready(aiSubtitleLocalized("ai_subtitle.resource.translation_credentials_ready", fallback: "Machine Translation credentials are saved"))
-        : .actionRequired(aiSubtitleLocalized("ai_subtitle.resource.translation_credentials_required", fallback: "Machine Translation AccessKey ID and Secret are required")))
+  private func refreshSchemeAvailability() {
+    let selectedProvider = explicitDefaultProvider
+    let localSelected = selectedProvider == .apple && isLocalPlanReady
+    let prepared = aiSubtitleLocalized("ai_subtitle.plan.prepared", fallback: "Supported")
+    let notPrepared = aiSubtitleLocalized("ai_subtitle.plan.not_prepared", fallback: "Not Downloaded")
+    let localStatus: String
+    if isLocalPlanReady {
+      localStatus = prepared
+    } else if isCheckingAppleResources {
+      localStatus = aiSubtitleLocalized("ai_subtitle.resource.checking", fallback: "Checking availability…")
+    } else if AISubtitleSystemSupport.isSupported {
+      localStatus = notPrepared
     } else {
-      translationCredentialResourceRow.setState(.notRequired(
-        aiSubtitleLocalized("ai_subtitle.resource.not_required", fallback: "Not required for the current language selection")
-      ))
+      localStatus = aiSubtitleLocalized("ai_subtitle.plan.unavailable", fallback: "Unavailable")
     }
 
-    let hasConsent = UserDefaultsAISubtitleCloudConsentStore().hasConsent(for: provider)
-    consentResourceRow.setState(hasConsent
-      ? .ready(aiSubtitleLocalized("ai_subtitle.resource.cloud_consent_ready", fallback: "Cloud processing is allowed"))
-      : .actionRequired(aiSubtitleLocalized("ai_subtitle.resource.cloud_consent_required", fallback: "Review and allow cloud processing")))
-    saveRemoteButton.title = AISubtitleInitializationState().isComplete
-      ? aiSubtitleLocalized("ai_subtitle.save_remote_settings", fallback: "Save Settings")
-      : aiSubtitleLocalized("ai_subtitle.initialize_remote", fallback: "Save and Enable")
+    localPlanSelectionButton.state = localSelected ? .on : .off
+    localPlanSelectionButton.isEnabled = isLocalPlanReady && !isPreparingAppleResources
+    remotePlanSelectionButton.state = .off
+    remotePlanSelectionButton.isEnabled = false
+    setPlanCardSelected(localSection, selected: localSelected)
+    setPlanCardSelected(remoteSection, selected: false)
+    setPlanHeader(icon: localPlanStatusIcon,
+                  label: localPlanStatusLabel,
+                  prepared: isLocalPlanReady,
+                  text: localStatus,
+                  checking: isCheckingAppleResources,
+                  unavailable: !AISubtitleSystemSupport.isSupported)
+    setPlanHeader(icon: remotePlanStatusIcon,
+                  label: remotePlanStatusLabel,
+                  prepared: false,
+                  text: aiSubtitleLocalized("ai_subtitle.plan.remote_pending", fallback: "Not Available Yet"))
+
+    let hasUsableDefault = localSelected
+    featureSwitch.state = hasUsableDefault && AISubtitleFeatureState().isEnabled ? .on : .off
+    featureSwitch.isEnabled = hasUsableDefault
+    autoModeButtons.forEach { $0.isEnabled = hasUsableDefault && !isPreparingAppleResources }
+    let hasSourceOptions = sourcePopup.itemArray.contains { $0.representedObject is String }
+    let hasTargetOptions = targetPopup.itemArray.contains { $0.representedObject is String }
+    targetPopup.isEnabled = hasUsableDefault && !isPreparingAppleResources && hasTargetOptions
+    sourcePopup.isEnabled = hasUsableDefault
+      && !isPreparingAppleResources
+      && selectedTargetLanguage != nil
+      && hasSourceOptions
+
+    reminderLabel.stringValue = aiSubtitleLocalized(
+      "ai_subtitle.reminder.prepare_plan",
+      fallback: "Prepare Apple Local AI or, when available, Rawya Remote AI before enabling AI subtitles."
+    )
+    reminderContainer.isHidden = isLocalPlanReady || isRemotePlanReady
   }
 
-  private func refreshAppleResourceStatus() {
+  private func setPlanCardSelected(_ card: AISubtitlePlanCardView, selected: Bool) {
+    card.setSelected(selected)
+  }
+
+  private func refreshAppleResourceInventory() {
     resourceProbeTask?.cancel()
     resourceProbeGeneration += 1
     let generation = resourceProbeGeneration
-    let version = ProcessInfo.processInfo.operatingSystemVersion
-    let systemDescription = "macOS \(version.majorVersion).\(version.minorVersion).\(version.patchVersion)"
+    isCheckingAppleResources = false
 
     guard AISubtitleSystemSupport.isSupported else {
-      systemResourceRow.setState(.unavailable(String(
-        format: aiSubtitleLocalized("ai_subtitle.resource.system_unsupported", fallback: "%@ · macOS 26 or later is required"),
-        systemDescription
+      isLocalPlanReady = false
+      systemResourceRow.isHidden = false
+      systemResourceRow.setState(.unavailable(aiSubtitleLocalized(
+        "ai_subtitle.plan.local_system_unavailable",
+        fallback: "This Mac cannot prepare Apple Local AI. Rawya Remote AI remains independent."
       )))
-      speechResourceRow.setState(.unavailable(aiSubtitleLocalized("ai_subtitle.resource.blocked_by_system", fallback: "Unavailable until macOS is upgraded")))
-      translationResourceRow.setState(.unavailable(aiSubtitleLocalized("ai_subtitle.resource.blocked_by_system", fallback: "Unavailable until macOS is upgraded")))
-      prepareLocalButton.isHidden = true
+      speechResourceItems = []
+      translationResourceItems = []
+      selectedAppleResources = []
+      preparationSourceLanguagesRow?.isHidden = true
+      setPlanHeader(icon: localPlanStatusIcon,
+                    label: localPlanStatusLabel,
+                    prepared: false,
+                    text: aiSubtitleLocalized("ai_subtitle.plan.unavailable", fallback: "Unavailable"),
+                    unavailable: true)
+      refreshPreparationState()
+      refreshSchemeAvailability()
       return
     }
 
-    systemResourceRow.setState(.ready(String(
-      format: aiSubtitleLocalized("ai_subtitle.resource.system_supported", fallback: "%@ · supported"),
-      systemDescription
-    )))
-    guard let sourceLanguage = selectedSourceLanguage else {
-      speechCapability = nil
-      translationCapability = nil
-      speechResourceRow.setState(.actionRequired(aiSubtitleLocalized("ai_subtitle.resource.choose_audio_language", fallback: "Choose a default audio language")))
-      translationResourceRow.setState(.actionRequired(aiSubtitleLocalized("ai_subtitle.resource.choose_audio_language_first", fallback: "Choose the audio language before checking translation resources")))
-      prepareLocalButton.isHidden = true
-      return
-    }
+    systemResourceRow.isHidden = true
+    isCheckingAppleResources = true
+    preparationSourceLanguagesRow?.isHidden = true
+    refreshPreparationState()
+    setPlanHeader(icon: localPlanStatusIcon,
+                  label: localPlanStatusLabel,
+                  prepared: isLocalPlanReady,
+                  text: aiSubtitleLocalized(isLocalPlanReady ? "ai_subtitle.plan.prepared" : "ai_subtitle.resource.checking",
+                                            fallback: isLocalPlanReady ? "Supported" : "Checking availability…"),
+                  checking: true)
+    refreshSchemeAvailability()
 
-    let targetLanguage = selectedTargetLanguage
-    let checking = aiSubtitleLocalized("ai_subtitle.resource.checking", fallback: "Checking availability…")
-    speechResourceRow.setState(.checking(checking))
-    translationResourceRow.setState(.checking(checking))
-    prepareLocalButton.isHidden = true
-
-    if #available(macOS 26.0, *) {
-      resourceProbeTask = Task { [weak self] in
-        async let speechProbe = AppleAISubtitleTranscriber().probe(language: sourceLanguage)
-        async let translationProbe = AppleAISubtitleTranslator().probe(sourceLanguage: sourceLanguage,
-                                                                        targetLanguage: targetLanguage)
-        let capabilities = await (speechProbe, translationProbe)
-        guard !Task.isCancelled else { return }
-        await MainActor.run {
-          guard let self = self, generation == self.resourceProbeGeneration else { return }
-          self.speechCapability = capabilities.0
-          self.translationCapability = capabilities.1
-          self.applyAppleCapabilities(sourceLanguage: sourceLanguage,
-                                      targetLanguage: targetLanguage)
+    guard #available(macOS 26.0, *), let targetLanguage = selectedPreparationTargetLanguage else { return }
+    resourceProbeTask = Task { [weak self] in
+      let sourceOptions = AISubtitleLanguageCatalog.sourceLanguages.compactMap { option -> (String, String)? in
+        option.code.map { ($0, option.title) }
+      }
+      var speechStatuses: [String: AISubtitleProviderStatus] = [:]
+      await withTaskGroup(of: (String, AISubtitleProviderStatus).self) { group in
+        for (code, _) in sourceOptions {
+          group.addTask {
+            let capability = await AppleAISubtitleTranscriber().probe(
+              language: AISubtitleLanguage(code)
+            )
+            return (code, capability.status)
+          }
         }
+        for await (code, status) in group {
+          speechStatuses[code] = status
+        }
+      }
+
+      guard !Task.isCancelled else { return }
+      var speechItems: [AppleLocalResourceItem] = []
+      var installedSpeechCodes = Set<String>()
+      for (code, title) in sourceOptions {
+        guard let status = speechStatuses[code] else { continue }
+        switch status {
+        case .available:
+          installedSpeechCodes.insert(code)
+          speechItems.append(AppleLocalResourceItem(id: .speech(code),
+                                                    title: title,
+                                                    status: .installed))
+        case .needsDownload, .needsAuthorization, .needsConfiguration, .requiresRuntimeProbe:
+          speechItems.append(AppleLocalResourceItem(id: .speech(code),
+                                                    title: title,
+                                                    status: .available))
+        case .unavailable:
+          break
+        }
+      }
+
+      var translationItems: [AppleLocalResourceItem] = []
+      var installedPairs = AISubtitlePreparedLanguageStore().translationPairs
+      let translationInputs = speechItems.compactMap { speechItem -> (String, String)? in
+        let sourceCode = speechItem.id.sourceCode
+        let sourceLanguage = AISubtitleLanguage(sourceCode)
+        guard !sourceLanguage.isEquivalent(to: targetLanguage) else { return nil }
+        let title = "\(self?.localizedLanguageName(sourceCode) ?? sourceCode) → \(self?.localizedLanguageName(targetLanguage.code) ?? targetLanguage.code)"
+        return (sourceCode, title)
+      }
+      var translationStatuses: [String: (title: String, installed: Bool, supported: Bool)] = [:]
+      await withTaskGroup(of: (String, String, Bool, Bool).self) { group in
+        for (sourceCode, title) in translationInputs {
+          group.addTask {
+            let status = await LanguageAvailability().status(
+              from: Locale.Language(identifier: sourceCode),
+              to: Locale.Language(identifier: targetLanguage.code)
+            )
+            return (sourceCode, title, status == .installed, status != .unsupported)
+          }
+        }
+        for await (sourceCode, title, installed, supported) in group {
+          translationStatuses[sourceCode] = (title, installed, supported)
+        }
+      }
+
+      guard !Task.isCancelled else { return }
+      for (sourceCode, _) in translationInputs {
+        guard let status = translationStatuses[sourceCode] else { continue }
+        let pairKey = AISubtitlePreparedLanguageStore.pairKey(source: sourceCode,
+                                                              target: targetLanguage.code)
+        installedPairs.remove(pairKey)
+        if status.installed {
+          installedPairs.insert(pairKey)
+          translationItems.append(AppleLocalResourceItem(
+            id: .translation(source: sourceCode, target: targetLanguage.code),
+            title: status.title,
+            status: .installed
+          ))
+        } else if status.supported {
+          translationItems.append(AppleLocalResourceItem(
+            id: .translation(source: sourceCode, target: targetLanguage.code),
+            title: status.title,
+            status: .available
+          ))
+        }
+      }
+
+      guard !Task.isCancelled else { return }
+      await MainActor.run {
+        guard let self, generation == self.resourceProbeGeneration else { return }
+        self.applyAppleResourceInventory(speechItems: speechItems,
+                                         translationItems: translationItems,
+                                         installedSpeechCodes: installedSpeechCodes,
+                                         installedPairs: installedPairs)
       }
     }
   }
 
-  private func applyAppleCapabilities(sourceLanguage: AISubtitleLanguage,
-                                      targetLanguage: AISubtitleLanguage) {
-    let sourceName = localizedLanguageName(sourceLanguage.code)
-    let targetName = localizedLanguageName(targetLanguage.code)
-    if let speechCapability {
-      speechResourceRow.setState(resourceState(for: speechCapability,
-                                               readyDetail: String(format: aiSubtitleLocalized("ai_subtitle.resource.speech_ready", fallback: "%@ · downloaded"), sourceName),
-                                               downloadDetail: String(format: aiSubtitleLocalized("ai_subtitle.resource.speech_download", fallback: "%@ · download required"), sourceName),
-                                               unavailableDetail: String(format: aiSubtitleLocalized("ai_subtitle.resource.speech_unavailable", fallback: "%@ · unavailable on this Mac"), sourceName)))
+  private func applyAppleResourceInventory(speechItems: [AppleLocalResourceItem],
+                                           translationItems: [AppleLocalResourceItem],
+                                           installedSpeechCodes: Set<String>,
+                                           installedPairs: Set<String>) {
+    isCheckingAppleResources = false
+    speechResourceItems = speechItems
+    translationResourceItems = translationItems
+    self.installedSpeechCodes = installedSpeechCodes
+    installedTranslationPairs = installedPairs
+    AISubtitlePreparedLanguageStore().save(speechLanguageCodes: installedSpeechCodes,
+                                           translationPairs: installedPairs)
+    isLocalPlanReady = !installedSpeechCodes.isEmpty
+    if isLocalPlanReady {
+      AISubtitleInitializationState().markPrepared(provider: .apple)
     }
-    if sourceLanguage.isEquivalent(to: targetLanguage) {
-      translationResourceRow.setState(.notRequired(String(
-        format: aiSubtitleLocalized("ai_subtitle.resource.translation_not_required", fallback: "%@ · source and target languages are the same"),
-        targetName
-      )))
-    } else if let translationCapability {
-      let pair = "\(sourceName) → \(targetName)"
-      translationResourceRow.setState(resourceState(for: translationCapability,
-                                                    readyDetail: String(format: aiSubtitleLocalized("ai_subtitle.resource.translation_ready", fallback: "%@ · downloaded"), pair),
-                                                    downloadDetail: String(format: aiSubtitleLocalized("ai_subtitle.resource.translation_download", fallback: "%@ · download required"), pair),
-                                                    unavailableDetail: String(format: aiSubtitleLocalized("ai_subtitle.resource.translation_unavailable", fallback: "%@ · unsupported language pair"), pair)))
+    PlayerCore.playerCores.forEach {
+      NotificationCenter.default.post(name: .iinaAISubtitleStateDidChange, object: $0)
     }
 
-    let resourcesReady = speechCapability?.status == .available
-      && (sourceLanguage.isEquivalent(to: targetLanguage) || translationCapability?.status == .available)
-    let resourcesNeedDownload = speechCapability?.status == .needsDownload
-      || (!sourceLanguage.isEquivalent(to: targetLanguage) && translationCapability?.status == .needsDownload)
-    if resourcesReady {
-      prepareLocalButton.title = aiSubtitleLocalized("ai_subtitle.enable_local", fallback: "Enable Apple Local AI")
-      prepareLocalButton.isHidden = AISubtitleInitializationState().isComplete
-    } else if resourcesNeedDownload {
-      prepareLocalButton.title = aiSubtitleLocalized("ai_subtitle.download_required_resources", fallback: "Download Required Resources")
-      prepareLocalButton.isHidden = false
+    rebuildPreparationSourceLanguageChoices()
+    preparationSourceLanguagesRow?.isHidden = false
+
+    setPlanHeader(icon: localPlanStatusIcon,
+                  label: localPlanStatusLabel,
+                  prepared: isLocalPlanReady,
+                  text: aiSubtitleLocalized(isLocalPlanReady ? "ai_subtitle.plan.prepared" : "ai_subtitle.plan.not_prepared",
+                                            fallback: isLocalPlanReady ? "Supported" : "Not Downloaded"))
+    refreshPreparationState()
+    refreshDailyLanguageAvailability()
+    refreshSchemeAvailability()
+  }
+
+  private var selectedPreparationSourceCodes: Set<String> {
+    Set(preparationSourceLanguageButtons.compactMap { code, button in
+      button.state == .on ? code : nil
+    })
+  }
+
+  private func requiredResourcesForPreparation() -> Set<AppleLocalResourceID> {
+    guard let targetLanguage = selectedPreparationTargetLanguage else { return [] }
+    var required = Set<AppleLocalResourceID>()
+    for sourceCode in selectedPreparationSourceCodes {
+      if let speech = speechResourceItems.first(where: { $0.id == .speech(sourceCode) }),
+         !isInstalled(speech.status) {
+        required.insert(speech.id)
+      }
+      let sourceLanguage = AISubtitleLanguage(sourceCode)
+      guard !sourceLanguage.isEquivalent(to: targetLanguage) else { continue }
+      let translationID = AppleLocalResourceID.translation(source: sourceCode, target: targetLanguage.code)
+      if let translation = translationResourceItems.first(where: { $0.id == translationID }),
+         !isInstalled(translation.status) {
+        required.insert(translation.id)
+      }
+    }
+    return required
+  }
+
+  private func isInstalled(_ status: AppleLocalResourceStatus) -> Bool {
+    if case .installed = status { return true }
+    return false
+  }
+
+  private func preparationSelectionIsSupported() -> Bool {
+    guard let targetLanguage = selectedPreparationTargetLanguage else { return false }
+    return selectedPreparationSourceCodes.allSatisfy { sourceCode in
+      guard speechResourceItems.contains(where: { $0.id == .speech(sourceCode) }) else { return false }
+      let sourceLanguage = AISubtitleLanguage(sourceCode)
+      if sourceLanguage.isEquivalent(to: targetLanguage) { return true }
+      let translationID = AppleLocalResourceID.translation(source: sourceCode, target: targetLanguage.code)
+      return translationResourceItems.contains(where: { $0.id == translationID })
+    }
+  }
+
+  private func refreshPreparationState() {
+    let canEdit = AISubtitleSystemSupport.isSupported
+      && !isCheckingAppleResources
+      && !isPreparingAppleResources
+    preparationSourceLanguageButtons.values.forEach { $0.isEnabled = canEdit }
+    preparationTargetPopup.isEnabled = canEdit
+    preparationProgressRow.isHidden = !isPreparingAppleResources
+    preparationSummaryLabel.isHidden = false
+    prepareLocalPlanButton.isHidden = false
+
+    if isPreparingAppleResources {
+      preparationProgressLabel.stringValue = aiSubtitleLocalized(
+        "ai_subtitle.setup.preparing",
+        fallback: "Downloading Apple Local AI…"
+      )
+      preparationProgressIndicator.startAnimation(nil)
+      preparationSummaryLabel.isHidden = true
+      prepareLocalPlanButton.isEnabled = false
+      return
+    }
+
+    preparationProgressIndicator.stopAnimation(nil)
+    if let preparationErrorMessage {
+      preparationSummaryLabel.textColor = .systemRed
+      preparationSummaryLabel.stringValue = preparationErrorMessage
+      selectedAppleResources = requiredResourcesForPreparation()
+      prepareLocalPlanButton.title = aiSubtitleLocalized("ai_subtitle.setup.retry", fallback: "Try Again")
+      prepareLocalPlanButton.isEnabled = canEdit && !selectedAppleResources.isEmpty
+      return
+    }
+
+    preparationSummaryLabel.textColor = .secondaryLabelColor
+    prepareLocalPlanButton.title = aiSubtitleLocalized("ai_subtitle.setup.start", fallback: "Start Download")
+    if !AISubtitleSystemSupport.isSupported {
+      preparationSummaryLabel.isHidden = true
+      prepareLocalPlanButton.isEnabled = false
+    } else if isCheckingAppleResources {
+      preparationSummaryLabel.isHidden = true
+      prepareLocalPlanButton.isEnabled = false
+    } else if selectedPreparationSourceCodes.isEmpty {
+      selectedAppleResources = []
+      preparationSummaryLabel.isHidden = true
+      prepareLocalPlanButton.isEnabled = false
+    } else if !preparationSelectionIsSupported() {
+      selectedAppleResources = []
+      preparationSummaryLabel.stringValue = aiSubtitleLocalized(
+        "ai_subtitle.setup.selection_unavailable",
+        fallback: "One or more selected language combinations are unavailable on this Mac."
+      )
+      prepareLocalPlanButton.isEnabled = false
     } else {
-      prepareLocalButton.isHidden = true
-    }
-    prepareLocalButton.isEnabled = AISubtitleFeatureState().isEnabled && !isPreparingAppleResources
-  }
-
-  private func resourceState(for capability: AISubtitleProviderCapability,
-                             readyDetail: String,
-                             downloadDetail: String,
-                             unavailableDetail: String) -> AISubtitleResourceViewState {
-    switch capability.status {
-    case .available:
-      return .ready(readyDetail)
-    case .needsDownload:
-      return .actionRequired(downloadDetail)
-    case .unavailable:
-      return .unavailable(unavailableDetail)
-    case .needsAuthorization, .needsConfiguration, .requiresRuntimeProbe:
-      return .actionRequired(capability.reason ?? downloadDetail)
+      selectedAppleResources = requiredResourcesForPreparation()
+      if selectedAppleResources.isEmpty {
+        preparationSummaryLabel.isHidden = true
+        prepareLocalPlanButton.isEnabled = false
+      } else {
+        preparationSummaryLabel.isHidden = true
+        prepareLocalPlanButton.isEnabled = canEdit
+      }
     }
   }
 
-  @objc private func defaultProviderChanged(_ sender: NSPopUpButton) {
-    guard let rawValue = sender.selectedItem?.representedObject as? String,
-          let provider = AISubtitleProviderID(rawValue: rawValue),
-          provider != .whisperCpp else { return }
+  private func setPlanHeader(icon: NSImageView,
+                             label: NSTextField,
+                             prepared: Bool,
+                             text: String,
+                             checking: Bool = false,
+                             unavailable: Bool = false) {
+    let symbol = prepared ? "checkmark.circle.fill" : (checking ? "clock" : (unavailable ? "xmark.circle.fill" : "circle"))
+    if #available(macOS 11.0, *) {
+      icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: text)
+    } else {
+      icon.image = NSImage(named: prepared ? NSImage.statusAvailableName : NSImage.statusPartiallyAvailableName)
+    }
+    icon.contentTintColor = prepared ? .systemGreen : (unavailable ? .systemOrange : .secondaryLabelColor)
+    label.stringValue = text
+    label.textColor = prepared ? .labelColor : .secondaryLabelColor
+  }
+
+  @objc private func defaultSchemeChanged(_ sender: NSButton) {
+    guard sender.tag == 0, isLocalPlanReady else {
+      refreshSchemeAvailability()
+      return
+    }
+    selectDefaultProvider(.apple)
+  }
+
+  private func selectDefaultProvider(_ provider: AISubtitleProviderID) {
+    guard provider == .apple, isLocalPlanReady else { return }
     persistProvider(provider)
+    ensureDailyLanguagesMatchPreparedPlan()
     setStatus("")
-    refreshAll(syncCloudConsent: true)
+    PlayerCore.playerCores.forEach {
+      NotificationCenter.default.post(name: .iinaAISubtitleStateDidChange, object: $0)
+    }
+    refreshSchemeAvailability()
   }
 
   @objc private func featureEnabledChanged(_ sender: NSSwitch) {
-    guard AISubtitleSystemSupport.isSupported else {
+    guard explicitDefaultProvider == .apple, isLocalPlanReady else {
       sender.state = .off
-      presentSystemUpgrade()
+      refreshSchemeAvailability()
       return
     }
     let enabled = sender.state == .on
@@ -835,161 +1343,174 @@ final class PrefAISubtitleViewController: PreferenceViewController, PreferenceWi
     PlayerCore.playerCores.forEach {
       NotificationCenter.default.post(name: .iinaAISubtitleStateDidChange, object: $0)
     }
-    refreshAll(syncCloudConsent: true)
+    refreshSchemeAvailability()
   }
 
-  @objc private func autoModeChanged(_ sender: NSPopUpButton) {
-    AISubtitleAutoMode.current = AISubtitleAutoMode(rawValue: sender.indexOfSelectedItem) ?? .whenMissing
+  @objc private func autoModeChanged(_ sender: NSButton) {
+    AISubtitleAutoMode.current = AISubtitleAutoMode(rawValue: sender.tag) ?? .whenMissing
+    refreshAutoModeSelection()
+    PlayerCore.playerCores.forEach {
+      NotificationCenter.default.post(name: .iinaAISubtitleStateDidChange, object: $0)
+    }
+  }
+
+  private func refreshAutoModeSelection() {
+    let selectedMode = AISubtitleAutoMode.current
+    for button in autoModeButtons {
+      button.state = button.tag == selectedMode.rawValue ? .on : .off
+    }
   }
 
   @objc private func languageChanged(_ sender: NSPopUpButton) {
-    defaults.set(selectedSourceLanguage?.code, forKey: "aiSubtitle.sourceLanguage")
-    defaults.set(selectedTargetLanguage.code, forKey: "aiSubtitle.targetLanguage")
+    if sender === targetPopup {
+      defaults.set(selectedTargetLanguage?.code, forKey: "aiSubtitle.targetLanguage")
+      refreshDailyLanguageAvailability()
+    } else {
+      defaults.set(selectedSourceLanguage?.code, forKey: "aiSubtitle.sourceLanguage")
+    }
     setStatus("")
-    refreshAll()
+    refreshSchemeAvailability()
   }
 
-  @objc private func consentChanged(_ sender: NSButton) {
-    UserDefaultsAISubtitleCloudConsentStore().setConsent(sender.state == .on, for: selectedRemoteProvider)
-    refreshRemoteControls(syncCloudConsent: false)
+  @objc private func preparationSourceLanguageChanged(_ sender: NSButton) {
+    preparationErrorMessage = nil
+    refreshPreparationState()
   }
 
-  @objc private func prepareLocalAI(_ sender: NSButton) {
+  @objc private func preparationTargetChanged(_ sender: NSPopUpButton) {
+    guard let code = sender.selectedItem?.representedObject as? String else { return }
+    clearPendingPreparationSelection()
+    defaults.set(code, forKey: "aiSubtitle.preparationTargetLanguage")
+    defaults.set(code, forKey: "aiSubtitle.resourceTargetLanguage")
+    refreshAppleResourceInventory()
+  }
+
+  @objc private func prepareSelectedLocalPlan(_ sender: NSButton) {
     guard AISubtitleSystemSupport.isSupported else {
       presentSystemUpgrade()
       return
     }
-    guard #available(macOS 26.0, *), let sourceLanguage = selectedSourceLanguage else {
-      setStatus(aiSubtitleLocalized("ai_subtitle.source_required",
-                                    fallback: "Choose the video's spoken language before generating AI subtitles."))
-      return
-    }
-    persistProvider(.apple)
-    defaults.set(sourceLanguage.code, forKey: "aiSubtitle.sourceLanguage")
-    defaults.set(selectedTargetLanguage.code, forKey: "aiSubtitle.targetLanguage")
-    isPreparingAppleResources = true
-    setPreparationControlsEnabled(false)
-    setStatus(aiSubtitleLocalized("ai_subtitle.resource.checking", fallback: "Checking availability…"))
+    preparationErrorMessage = nil
+    selectedAppleResources = requiredResourcesForPreparation()
+    guard #available(macOS 26.0, *), !selectedAppleResources.isEmpty else { return }
 
-    let targetLanguage = selectedTargetLanguage
-    Task { [weak self] in
-      async let speechProbe = AppleAISubtitleTranscriber().probe(language: sourceLanguage)
-      async let translationProbe = AppleAISubtitleTranslator().probe(sourceLanguage: sourceLanguage,
-                                                                      targetLanguage: targetLanguage)
-      let capabilities = await (speechProbe, translationProbe)
-      await MainActor.run {
-        guard let self = self else { return }
-        self.speechCapability = capabilities.0
-        self.translationCapability = capabilities.1
-        self.continueApplePreparation(sourceLanguage: sourceLanguage,
-                                      targetLanguage: targetLanguage)
+    let speechCodes = selectedAppleResources.compactMap { resourceID -> String? in
+      if case .speech(let code) = resourceID { return code }
+      return nil
+    }.sorted()
+    let translationPairs = selectedAppleResources.compactMap { resourceID -> (AISubtitleLanguage, AISubtitleLanguage)? in
+      if case .translation(let source, let target) = resourceID {
+        return (AISubtitleLanguage(source), AISubtitleLanguage(target))
+      }
+      return nil
+    }.sorted { lhs, rhs in
+      lhs.0.code == rhs.0.code ? lhs.1.code < rhs.1.code : lhs.0.code < rhs.0.code
+    }
+
+    isPreparingAppleResources = true
+    refreshPreparationState()
+    pendingTranslationDownloads = translationPairs
+
+    batchDownloadTask?.cancel()
+    batchDownloadTask = Task { [weak self] in
+      guard let self else { return }
+      do {
+        for code in speechCodes {
+          guard !Task.isCancelled else { return }
+          let resourceID = AppleLocalResourceID.speech(code)
+          await MainActor.run { self.updateResourceStatus(resourceID, status: .downloading(nil)) }
+          try await self.installSpeechResource(AISubtitleLanguage(code), resourceID: resourceID)
+          await MainActor.run {
+            self.selectedAppleResources.remove(resourceID)
+            self.updateResourceStatus(resourceID, status: .installed)
+          }
+        }
+        await MainActor.run { self.prepareNextTranslationDownload() }
+      } catch let error as AISubtitleError {
+        await MainActor.run { self.finishAppleResourceBatch(.failure(error)) }
+      } catch {
+        await MainActor.run {
+          self.finishAppleResourceBatch(.failure(AISubtitleError(code: "apple_resource_batch_failed",
+                                                                 message: error.localizedDescription)))
+        }
       }
     }
   }
 
   @available(macOS 26.0, *)
-  private func continueApplePreparation(sourceLanguage: AISubtitleLanguage,
-                                        targetLanguage: AISubtitleLanguage) {
-    guard let speechCapability else {
-      finishApplePreparation(.failure(AISubtitleError(code: "apple_speech_probe_failed",
-                                                       message: aiSubtitleLocalized("ai_subtitle.resource.probe_failed", fallback: "Could not check Apple speech resources."))))
-      return
-    }
-    switch speechCapability.status {
-    case .available:
-      prepareAppleTranslationIfNeeded(sourceLanguage: sourceLanguage,
-                                      targetLanguage: targetLanguage)
-    case .needsDownload:
-      speechResourceRow.setState(.preparing(
-        aiSubtitleLocalized("ai_subtitle.downloading_speech", fallback: "Downloading Apple speech resources…"),
-        nil
-      ))
-      AppleAISubtitleTranscriber().installAssets(language: sourceLanguage,
-                                                 progressHandler: { [weak self] progress in
+  private func installSpeechResource(_ language: AISubtitleLanguage,
+                                     resourceID: AppleLocalResourceID) async throws {
+    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+      AppleAISubtitleTranscriber().installAssets(language: language, progressHandler: { [weak self] progress in
         DispatchQueue.main.async {
-          self?.speechResourceRow.setState(.preparing(
-            aiSubtitleLocalized("ai_subtitle.downloading_speech", fallback: "Downloading Apple speech resources…"),
-            progress
-          ))
+          self?.updateResourceStatus(resourceID, status: .downloading(progress))
         }
-      }, completion: { [weak self] result in
-        DispatchQueue.main.async {
-          guard let self = self else { return }
-          switch result {
-          case .success:
-            self.prepareAppleTranslationIfNeeded(sourceLanguage: sourceLanguage,
-                                                  targetLanguage: targetLanguage)
-          case .failure(let error):
-            self.finishApplePreparation(.failure(error))
-          }
+      }, completion: { result in
+        switch result {
+        case .success:
+          continuation.resume()
+        case .failure(let error):
+          continuation.resume(throwing: error)
         }
       })
-    case .unavailable, .needsAuthorization, .needsConfiguration, .requiresRuntimeProbe:
-      finishApplePreparation(.failure(AISubtitleError(
-        code: "apple_speech_unavailable",
-        message: speechCapability.reason ?? aiSubtitleLocalized("ai_subtitle.resource.speech_unavailable_generic", fallback: "The selected Apple speech model is unavailable.")
-      )))
     }
   }
 
-  @available(macOS 26.0, *)
-  private func prepareAppleTranslationIfNeeded(sourceLanguage: AISubtitleLanguage,
-                                               targetLanguage: AISubtitleLanguage) {
-    if sourceLanguage.isEquivalent(to: targetLanguage) {
-      finishApplePreparation(.success(()))
+  private func prepareNextTranslationDownload() {
+    guard isPreparingAppleResources else { return }
+    guard !pendingTranslationDownloads.isEmpty else {
+      finishAppleResourceBatch(.success(()))
       return
     }
-    guard let translationCapability else {
-      finishApplePreparation(.failure(AISubtitleError(code: "apple_translation_probe_failed",
-                                                       message: aiSubtitleLocalized("ai_subtitle.resource.translation_probe_failed", fallback: "Could not check Apple translation resources."))))
-      return
-    }
-    switch translationCapability.status {
-    case .available:
-      finishApplePreparation(.success(()))
-    case .needsDownload:
-      translationResourceRow.setState(.preparing(
-        aiSubtitleLocalized("ai_subtitle.preparing_translation", fallback: "Preparing on-device translation resources…"),
-        nil
-      ))
-      showTranslationPreparation(sourceLanguage: sourceLanguage, targetLanguage: targetLanguage)
-    case .unavailable, .needsAuthorization, .needsConfiguration, .requiresRuntimeProbe:
-      finishApplePreparation(.failure(AISubtitleError(
-        code: "apple_translation_unavailable",
-        message: translationCapability.reason ?? aiSubtitleLocalized("ai_subtitle.resource.translation_unavailable_generic", fallback: "The selected Apple translation languages are unavailable.")
-      )))
+    guard #available(macOS 26.0, *) else { return }
+    let pair = pendingTranslationDownloads.removeFirst()
+    let resourceID = AppleLocalResourceID.translation(source: pair.source.code, target: pair.target.code)
+    updateResourceStatus(resourceID, status: .downloading(nil))
+    showTranslationPreparation(sourceLanguage: pair.source,
+                               targetLanguage: pair.target) { [weak self] result in
+      guard let self else { return }
+      self.clearTranslationPreparation()
+      switch result {
+      case .success:
+        self.selectedAppleResources.remove(resourceID)
+        self.updateResourceStatus(resourceID, status: .installed)
+        self.prepareNextTranslationDownload()
+      case .failure(let error):
+        self.updateResourceStatus(resourceID, status: .failed(error.message))
+        self.finishAppleResourceBatch(.failure(error))
+      }
     }
   }
 
   @available(macOS 26.0, *)
   private func showTranslationPreparation(sourceLanguage: AISubtitleLanguage,
-                                          targetLanguage: AISubtitleLanguage) {
+                                          targetLanguage: AISubtitleLanguage,
+                                          completion: @escaping (Result<Void, AISubtitleError>) -> Void) {
     clearTranslationPreparation()
     let preparationView = AppleTranslationPreparationView(
       sourceLanguage: sourceLanguage,
-      targetLanguage: targetLanguage
-    ) { [weak self] result in
-      self?.clearTranslationPreparation()
-      self?.finishApplePreparation(result)
-    }
+      targetLanguage: targetLanguage,
+      completion: completion
+    )
     let host = NSHostingView(rootView: preparationView)
     host.translatesAutoresizingMaskIntoConstraints = false
     translationPreparationHost = host
     translationHostContainer.addArrangedSubview(host)
     host.widthAnchor.constraint(equalTo: translationHostContainer.widthAnchor).isActive = true
-    host.heightAnchor.constraint(equalToConstant: 58).isActive = true
+    host.heightAnchor.constraint(equalToConstant: 1).isActive = true
     translationHostContainer.isHidden = false
   }
 
-  private func finishApplePreparation(_ result: Result<Void, AISubtitleError>) {
+  private func finishAppleResourceBatch(_ result: Result<Void, AISubtitleError>) {
     isPreparingAppleResources = false
-    setPreparationControlsEnabled(true)
+    pendingTranslationDownloads = []
+    clearTranslationPreparation()
     switch result {
     case .success:
-      AISubtitleInitializationState().markComplete(provider: .apple)
-      setStatus(aiSubtitleLocalized("ai_subtitle.local_ready", fallback: "Apple Local AI is ready."))
+      preparationErrorMessage = nil
+      preparationSourceLanguageButtons.values.forEach { $0.state = .off }
     case .failure(let error):
-      setStatus(error.message)
+      preparationErrorMessage = error.message
     }
     refreshAll()
   }
@@ -1000,98 +1521,15 @@ final class PrefAISubtitleViewController: PreferenceViewController, PreferenceWi
     translationHostContainer.isHidden = true
   }
 
-  private func setPreparationControlsEnabled(_ enabled: Bool) {
-    let configurationEnabled = enabled && AISubtitleFeatureState().isEnabled
-    defaultProviderPopup.isEnabled = configurationEnabled
-    sourcePopup.isEnabled = configurationEnabled
-    targetPopup.isEnabled = configurationEnabled
-    prepareLocalButton.isEnabled = configurationEnabled
-  }
-
-  @objc private func saveRemoteAI(_ sender: NSButton) {
-    let provider = selectedRemoteProvider
-    persistProvider(provider)
-    do {
-      let credentialStore = AISubtitleCloudCredentialStore()
-      if provider == .openAI, !openAIKeyField.stringValue.isEmpty {
-        try credentialStore.saveOpenAIAPIKey(openAIKeyField.stringValue)
-        openAIKeyField.stringValue = ""
-      }
-      if provider == .aliyun {
-        if !aliyunDashScopeField.stringValue.isEmpty {
-          try credentialStore.saveAliyunDashScopeAPIKey(aliyunDashScopeField.stringValue)
-          aliyunDashScopeField.stringValue = ""
-        }
-        if !aliyunAccessKeyIDField.stringValue.isEmpty || !aliyunAccessKeySecretField.stringValue.isEmpty {
-          guard !aliyunAccessKeyIDField.stringValue.isEmpty,
-                !aliyunAccessKeySecretField.stringValue.isEmpty else {
-            throw AISubtitleError(code: "aliyun_credentials_incomplete",
-                                  message: aiSubtitleLocalized("ai_subtitle.aliyun_credentials_incomplete",
-                                                               fallback: "Enter both Machine Translation AccessKey fields."))
-          }
-          try credentialStore.saveAliyunMachineTranslation(accessKeyID: aliyunAccessKeyIDField.stringValue,
-                                                            accessKeySecret: aliyunAccessKeySecretField.stringValue)
-          aliyunAccessKeyIDField.stringValue = ""
-          aliyunAccessKeySecretField.stringValue = ""
-        }
-      }
-      UserDefaultsAISubtitleCloudConsentStore().setConsent(consentButton.state == .on, for: provider)
-      guard AISubtitleKeychainCredentialChecker().hasCredential(for: provider) else {
-        throw AISubtitleError(code: "cloud_credentials_required",
-                              message: aiSubtitleLocalized("ai_subtitle.cloud_credentials_required",
-                                                           fallback: "Enter and save the selected remote service credentials."))
-      }
-      guard consentButton.state == .on else {
-        throw AISubtitleError(code: "cloud_consent_required",
-                              message: aiSubtitleLocalized("ai_subtitle.cloud_consent_required",
-                                                           fallback: "Allow cloud processing before finishing remote AI setup."))
-      }
-      if provider == .aliyun && translationRequired {
-        let aliyun = AISubtitleAliyunKeychainCredentialProvider().credentials()
-        guard !(aliyun.machineTranslationAccessKeyID?.isEmpty ?? true),
-              !(aliyun.machineTranslationAccessKeySecret?.isEmpty ?? true) else {
-          throw AISubtitleError(code: "aliyun_translation_credentials_required",
-                                message: aiSubtitleLocalized("ai_subtitle.aliyun_translation_credentials_required",
-                                                             fallback: "Enter the Aliyun Machine Translation AccessKey ID and secret."))
-        }
-      }
-      AISubtitleInitializationState().markComplete(provider: provider)
-      setStatus(aiSubtitleLocalized("ai_subtitle.remote_ready", fallback: "Remote AI is ready."))
-      refreshAll(syncCloudConsent: true)
-    } catch {
-      setStatus((error as? AISubtitleError)?.message ?? error.localizedDescription)
-      refreshRemoteControls(syncCloudConsent: false)
+  private func updateResourceStatus(_ resourceID: AppleLocalResourceID,
+                                    status: AppleLocalResourceStatus) {
+    if let index = speechResourceItems.firstIndex(where: { $0.id == resourceID }) {
+      speechResourceItems[index].status = status
     }
-  }
-
-  @objc private func removeCloudCredentials(_ sender: NSButton) {
-    let provider = selectedRemoteProvider
-    guard let window = view.window else { return }
-    let alert = NSAlert()
-    alert.alertStyle = .warning
-    alert.messageText = aiSubtitleLocalized("ai_subtitle.remove_credentials_title",
-                                            fallback: "Remove Saved Cloud Credentials?")
-    alert.informativeText = String(format: aiSubtitleLocalized("ai_subtitle.remove_credentials_message",
-                                                               fallback: "Remove the saved credentials for %@ from Keychain?"),
-                                   providerServiceName(provider))
-    alert.addButton(withTitle: aiSubtitleLocalized("ai_subtitle.remove", fallback: "Remove"))
-    alert.addButton(withTitle: aiSubtitleLocalized("ai_subtitle.cancel", fallback: "Cancel"))
-    alert.beginSheetModal(for: window) { [weak self] response in
-      guard response == .alertFirstButtonReturn, let self = self else { return }
-      do {
-        try AISubtitleCloudCredentialStore().removeCredentials(for: provider)
-        UserDefaultsAISubtitleCloudConsentStore().setConsent(false, for: provider)
-        AISubtitleInitializationState().reset(provider: provider)
-        self.setStatus(String(
-          format: aiSubtitleLocalized("ai_subtitle.credentials_removed",
-                                      fallback: "Removed saved %@ credentials."),
-          self.providerServiceName(provider)
-        ))
-        self.refreshAll(syncCloudConsent: true)
-      } catch {
-        self.setStatus(error.localizedDescription)
-      }
+    if let index = translationResourceItems.firstIndex(where: { $0.id == resourceID }) {
+      translationResourceItems[index].status = status
     }
+    refreshPreparationState()
   }
 
   @objc private func cacheLimitChanged(_ sender: NSPopUpButton) {
@@ -1108,137 +1546,169 @@ final class PrefAISubtitleViewController: PreferenceViewController, PreferenceWi
   private func pruneCache(maximumBytes: Int64) {
     do {
       let result = try PlayerCore.active.pruneAISubtitleCache(maximumBytes: maximumBytes)
-      setStatus(result.removedEntryCount == 0
-        ? aiSubtitleLocalized("ai_subtitle.cache_nothing_removed",
-                              fallback: "No other video cache needed removal.")
-        : String(format: aiSubtitleLocalized("ai_subtitle.cache_removed",
-                                             fallback: "Removed %d cached item(s), freeing %@."),
-                 result.removedEntryCount,
-                 ByteCountFormatter.string(fromByteCount: result.removedBytes, countStyle: .file)))
+      if result.removedEntryCount == 0 {
+        setStatus("")
+      } else {
+        setStatus(String(format: aiSubtitleLocalized("ai_subtitle.cache_removed",
+                                                     fallback: "Removed %d cached item(s), freeing %@."),
+                         result.removedEntryCount,
+                         ByteCountFormatter.string(fromByteCount: result.removedBytes, countStyle: .file)))
+      }
+      refreshCacheUsage()
     } catch {
       setStatus(error.localizedDescription)
+      refreshCacheUsage()
+    }
+  }
+
+  private func refreshCacheUsage() {
+    cacheUsageGeneration += 1
+    let generation = cacheUsageGeneration
+    cacheUsageLabel.stringValue = "…"
+    DispatchQueue.global(qos: .utility).async { [weak self] in
+      let totalBytes = try? AISubtitleCacheStore().usage().totalBytes
+      DispatchQueue.main.async {
+        guard let self, generation == self.cacheUsageGeneration else { return }
+        guard let totalBytes else {
+          self.cacheUsageLabel.stringValue = aiSubtitleLocalized("ai_subtitle.plan.unavailable",
+                                                                 fallback: "Unavailable")
+          return
+        }
+        self.cacheUsageLabel.stringValue = totalBytes == 0
+          ? "0 KB"
+          : ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file)
+      }
     }
   }
 
   private func persistProvider(_ provider: AISubtitleProviderID) {
-    defaults.set(preferenceIndex(for: provider), forKey: "aiSubtitle.provider")
+    defaults.set(provider.preferenceIndex, forKey: "aiSubtitle.provider")
   }
 
-  private func preferenceIndex(for provider: AISubtitleProviderID) -> Int {
-    switch provider {
-    case .apple, .whisperCpp: return 0
-    case .openAI: return 1
-    case .aliyun: return 2
-    }
-  }
-
-  private var configuredProvider: AISubtitleProviderID {
-    guard defaults.object(forKey: "aiSubtitle.provider") != nil else { return .apple }
-    let provider = AISubtitleProviderID(preferenceIndex: defaults.integer(forKey: "aiSubtitle.provider")) ?? .apple
-    return provider == .whisperCpp ? .apple : provider
-  }
-
-  private var selectedRemoteProvider: AISubtitleProviderID {
-    return configuredProvider.isCloudProvider ? configuredProvider : .openAI
+  private var explicitDefaultProvider: AISubtitleProviderID? {
+    guard defaults.object(forKey: "aiSubtitle.provider") != nil,
+          let provider = AISubtitleProviderID(preferenceIndex: defaults.integer(forKey: "aiSubtitle.provider")),
+          provider != .whisperCpp else { return nil }
+    return provider
   }
 
   private var selectedSourceLanguage: AISubtitleLanguage? {
     (sourcePopup.selectedItem?.representedObject as? String).map(AISubtitleLanguage.init)
   }
 
-  private var selectedTargetLanguage: AISubtitleLanguage {
-    AISubtitleLanguage((targetPopup.selectedItem?.representedObject as? String) ?? "en")
+  private var selectedTargetLanguage: AISubtitleLanguage? {
+    (targetPopup.selectedItem?.representedObject as? String).map(AISubtitleLanguage.init)
   }
 
-  private var translationRequired: Bool {
-    selectedSourceLanguage.map { !$0.isEquivalent(to: selectedTargetLanguage) } ?? true
-  }
-
-  private func providerOptionTitle(_ provider: AISubtitleProviderID) -> String {
-    provider == .apple
-      ? aiSubtitleLocalized("ai_subtitle.provider.apple_option", fallback: "Apple Local AI")
-      : providerServiceName(provider)
-  }
-
-  private func providerServiceName(_ provider: AISubtitleProviderID) -> String {
-    provider == .aliyun
-      ? aiSubtitleLocalized("ai_subtitle.provider.aliyun_option", fallback: "Aliyun")
-      : provider.displayName
+  private var selectedPreparationTargetLanguage: AISubtitleLanguage? {
+    (preparationTargetPopup.selectedItem?.representedObject as? String).map(AISubtitleLanguage.init)
   }
 
   private func localizedLanguageName(_ code: String) -> String {
-    let interfaceLanguage = Bundle.main.preferredLocalizations.first ?? Locale.current.identifier
-    return Locale(identifier: interfaceLanguage).localizedString(forIdentifier: code) ?? code
+    AISubtitleLanguageCatalog.localizedTitle(for: code)
   }
 
-  private func refreshLanguageDownloadIndicators(provider: AISubtitleProviderID) {
-    languageStatusTask?.cancel()
-    languageStatusGeneration += 1
-    let generation = languageStatusGeneration
-    updateLanguagePopupTitles(sourcePopup,
-                              options: AISubtitleLanguageCatalog.sourceLanguages,
-                              downloadedCodes: [])
-    updateLanguagePopupTitles(targetPopup,
-                              options: AISubtitleLanguageCatalog.targetLanguages,
-                              downloadedCodes: [])
-
-    guard provider == .apple, AISubtitleSystemSupport.isSupported else { return }
-    guard #available(macOS 26.0, *) else { return }
-    let sourceLanguage = selectedSourceLanguage
-    languageStatusTask = Task { [weak self] in
-      let transcriber = AppleAISubtitleTranscriber()
-      var downloadedSourceCodes = Set<String>()
-      for option in AISubtitleLanguageCatalog.sourceLanguages {
-        guard !Task.isCancelled, let code = option.code else { continue }
-        let capability = await transcriber.probe(language: AISubtitleLanguage(code))
-        if capability.status == .available {
-          downloadedSourceCodes.insert(code)
-        }
-      }
-
-      var downloadedTargetCodes = Set<String>()
-      if let sourceLanguage {
-        let availability = LanguageAvailability()
-        for option in AISubtitleLanguageCatalog.targetLanguages {
-          guard !Task.isCancelled, let code = option.code else { continue }
-          let targetLanguage = AISubtitleLanguage(code)
-          guard !sourceLanguage.isEquivalent(to: targetLanguage) else { continue }
-          let status = await availability.status(
-            from: Locale.Language(identifier: sourceLanguage.code),
-            to: Locale.Language(identifier: code)
-          )
-          if status == .installed {
-            downloadedTargetCodes.insert(code)
-          }
-        }
-      }
-      guard !Task.isCancelled else { return }
-      await MainActor.run {
-        guard let self, generation == self.languageStatusGeneration else { return }
-        self.updateLanguagePopupTitles(self.sourcePopup,
-                                       options: AISubtitleLanguageCatalog.sourceLanguages,
-                                       downloadedCodes: downloadedSourceCodes)
-        self.updateLanguagePopupTitles(self.targetPopup,
-                                       options: AISubtitleLanguageCatalog.targetLanguages,
-                                       downloadedCodes: downloadedTargetCodes)
-      }
+  private func refreshDailyLanguageAvailability() {
+    let preferredTarget = selectedTargetLanguage?.code
+      ?? defaults.string(forKey: "aiSubtitle.targetLanguage")
+      ?? selectedPreparationTargetLanguage?.code
+    let sourceCandidates = AISubtitleLanguageCatalog.sourceLanguages.compactMap(\.code)
+    let targetCandidates = AISubtitleLanguageCatalog.targetLanguages.compactMap(\.code)
+    let preparedTargetCodes = AISubtitlePreparedLanguageStore.preparedTargetCodes(
+      sourceCandidates: Set(sourceCandidates),
+      targetCandidates: targetCandidates,
+      speechLanguageCodes: installedSpeechCodes,
+      translationPairs: installedTranslationPairs
+    )
+    let preparedTargetOptions = AISubtitleLanguageCatalog.targetLanguages.filter { option in
+      guard let targetCode = option.code else { return false }
+      return preparedTargetCodes.contains(targetCode)
     }
+    replaceLanguagePopup(targetPopup,
+                         options: preparedTargetOptions,
+                         preferredCode: preferredTarget,
+                         includesPlaceholder: true)
+
+    guard let targetCode = selectedTargetLanguage?.code else {
+      replaceLanguagePopup(sourcePopup,
+                           options: [],
+                           preferredCode: nil,
+                           includesPlaceholder: true)
+      defaults.removeObject(forKey: "aiSubtitle.sourceLanguage")
+      refreshSchemeAvailability()
+      return
+    }
+    defaults.set(targetCode, forKey: "aiSubtitle.targetLanguage")
+
+    let preferredSource = selectedSourceLanguage?.code
+      ?? defaults.string(forKey: "aiSubtitle.sourceLanguage")
+    let preparedSourceCodes = AISubtitlePreparedLanguageStore.preparedSourceCodes(
+      for: targetCode,
+      sourceCandidates: sourceCandidates,
+      speechLanguageCodes: installedSpeechCodes,
+      translationPairs: installedTranslationPairs
+    )
+    let preparedSourceOptions = AISubtitleLanguageCatalog.sourceLanguages.filter { option in
+      guard let sourceCode = option.code else { return false }
+      return preparedSourceCodes.contains(sourceCode)
+    }
+    replaceLanguagePopup(sourcePopup,
+                         options: preparedSourceOptions,
+                         preferredCode: preferredSource,
+                         includesPlaceholder: true)
+    defaults.set(selectedSourceLanguage?.code, forKey: "aiSubtitle.sourceLanguage")
+    refreshSchemeAvailability()
   }
 
-  private func updateLanguagePopupTitles(_ popup: NSPopUpButton,
-                                         options: [AISubtitleLanguageOption],
-                                         downloadedCodes: Set<String>) {
-    for (index, option) in options.enumerated() where index < popup.numberOfItems {
-      let title: String
-      if let code = option.code, downloadedCodes.contains(code) {
-        title = String(format: aiSubtitleLocalized("ai_subtitle.language_downloaded",
-                                                   fallback: "%@ · Downloaded"),
-                       option.title)
-      } else {
-        title = option.title
-      }
-      popup.item(at: index)?.title = title
+  private func replaceLanguagePopup(_ popup: NSPopUpButton,
+                                    options: [AISubtitleLanguageOption],
+                                    preferredCode: String?,
+                                    includesPlaceholder: Bool = false) {
+    popup.removeAllItems()
+    let placeholder = AISubtitleLanguageCatalog.sourceLanguages.first { $0.code == nil }
+    configureLanguagePopup(popup,
+                           options: includesPlaceholder ? Array([placeholder].compactMap { $0 }) + options : options)
+    guard popup.numberOfItems > 0 else { return }
+    selectLanguage(preferredCode, in: popup)
+  }
+
+  private func ensureDailyLanguagesMatchPreparedPlan() {
+    let sourceCandidates = AISubtitleLanguageCatalog.sourceLanguages.compactMap(\.code)
+    let preparedTargetCodes = AISubtitlePreparedLanguageStore.preparedTargetCodes(
+      sourceCandidates: Set(sourceCandidates),
+      targetCandidates: AISubtitleLanguageCatalog.targetLanguages.compactMap(\.code),
+      speechLanguageCodes: installedSpeechCodes,
+      translationPairs: installedTranslationPairs
+    )
+    let preparedTargets = AISubtitleLanguageCatalog.targetLanguages.compactMap(\.code).filter {
+      preparedTargetCodes.contains($0)
     }
+    guard !preparedTargets.isEmpty else { return }
+
+    let currentTarget = selectedTargetLanguage?.code
+      ?? defaults.string(forKey: "aiSubtitle.targetLanguage")
+    let preparationTarget = selectedPreparationTargetLanguage?.code
+    let targetCode = currentTarget.flatMap { preparedTargets.contains($0) ? $0 : nil }
+      ?? preparationTarget.flatMap { preparedTargets.contains($0) ? $0 : nil }
+      ?? preparedTargets[0]
+    defaults.set(targetCode, forKey: "aiSubtitle.targetLanguage")
+
+    let preparedSourceCodes = AISubtitlePreparedLanguageStore.preparedSourceCodes(
+      for: targetCode,
+      sourceCandidates: sourceCandidates,
+      speechLanguageCodes: installedSpeechCodes,
+      translationPairs: installedTranslationPairs
+    )
+    let preparedSources = sourceCandidates.filter { preparedSourceCodes.contains($0) }
+    let currentSource = selectedSourceLanguage?.code
+      ?? defaults.string(forKey: "aiSubtitle.sourceLanguage")
+    if let sourceCode = currentSource.flatMap({ preparedSources.contains($0) ? $0 : nil })
+      ?? preparedSources.first {
+      defaults.set(sourceCode, forKey: "aiSubtitle.sourceLanguage")
+    } else {
+      defaults.removeObject(forKey: "aiSubtitle.sourceLanguage")
+    }
+    refreshDailyLanguageAvailability()
   }
 
   private func presentSystemUpgrade() {
@@ -1257,12 +1727,8 @@ private struct AppleTranslationPreparationView: View {
   let completion: (Result<Void, AISubtitleError>) -> Void
 
   var body: some View {
-    HStack(spacing: 10) {
-      ProgressView()
-      Text(aiSubtitleLocalized("ai_subtitle.preparing_translation",
-                               fallback: "Preparing on-device translation resources…"))
-    }
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+    Color.clear
+    .frame(height: 1)
     .translationTask(source: Locale.Language(identifier: sourceLanguage.code),
                      target: Locale.Language(identifier: targetLanguage.code)) { session in
       do {
