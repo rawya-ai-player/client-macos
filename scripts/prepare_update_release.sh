@@ -126,7 +126,11 @@ source_name="Rawya-${version}-${build_number}-source.tar.gz"
 cp "$source_zip" "${prepared_dir}/${zip_name}"
 cp "$release_notes" "${prepared_dir}/release-notes.md"
 cp "${prepared_dir}/${zip_name}" "${appcast_source_dir}/${zip_name}"
-cp "$release_notes" "${appcast_source_dir}/Rawya-${version}-${build_number}.md"
+sed -E \
+  -e '/^<details>$/d' \
+  -e '/^<\/details>$/d' \
+  -e 's|^<summary><strong>(.*)</strong></summary>$|### \1|' \
+  "$release_notes" > "${appcast_source_dir}/Rawya-${version}-${build_number}.md"
 
 ditto "$app_path" "${dmg_source_dir}/Rawya.app"
 ln -s /Applications "${dmg_source_dir}/Applications"
