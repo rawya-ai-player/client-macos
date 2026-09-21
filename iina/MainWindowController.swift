@@ -151,6 +151,7 @@ class MainWindowController: PlayerWindowController {
   private let aiSubtitleConfirmationTargetValue = NSTextField(labelWithString: "")
   private let aiSubtitleConfirmationSourceStack = NSStackView()
   private let aiSubtitleConfirmationMoreLanguagesPopup = NSPopUpButton()
+  private let aiSubtitleConfirmationCancelButton = NSButton()
   private let aiSubtitleConfirmationButton = NSButton()
   private var aiSubtitleConfirmationSourceButtons: [NSButton] = []
   private var aiSubtitleConfirmationSourceCode: String?
@@ -895,7 +896,22 @@ class MainWindowController: PlayerWindowController {
     aiSubtitleConfirmationButton.target = self
     aiSubtitleConfirmationButton.action = #selector(confirmAISubtitleLanguageAndGenerate(_:))
 
-    let content = NSStackView(views: [targetRow, sourceRow, aiSubtitleConfirmationButton])
+    aiSubtitleConfirmationCancelButton.title = aiSubtitleLocalized(
+      "ai_subtitle.cancel",
+      fallback: "Cancel"
+    )
+    aiSubtitleConfirmationCancelButton.controlSize = .regular
+    aiSubtitleConfirmationCancelButton.target = self
+    aiSubtitleConfirmationCancelButton.action = #selector(cancelAISubtitleLanguageConfirmation(_:))
+
+    let actionRow = NSStackView(views: [aiSubtitleConfirmationCancelButton,
+                                         aiSubtitleConfirmationButton])
+    actionRow.orientation = .horizontal
+    actionRow.alignment = .centerY
+    actionRow.spacing = 8
+    actionRow.distribution = .fillEqually
+
+    let content = NSStackView(views: [targetRow, sourceRow, actionRow])
     content.orientation = .vertical
     content.alignment = .leading
     content.spacing = 10
@@ -918,8 +934,9 @@ class MainWindowController: PlayerWindowController {
       content.bottomAnchor.constraint(equalTo: hud.bottomAnchor, constant: -12),
       targetRow.widthAnchor.constraint(equalTo: content.widthAnchor),
       sourceRow.widthAnchor.constraint(equalTo: content.widthAnchor),
+      actionRow.widthAnchor.constraint(equalTo: content.widthAnchor),
       aiSubtitleConfirmationSourceStack.trailingAnchor.constraint(equalTo: sourceRow.trailingAnchor),
-      aiSubtitleConfirmationButton.trailingAnchor.constraint(equalTo: content.trailingAnchor)
+      actionRow.trailingAnchor.constraint(equalTo: content.trailingAnchor)
     ])
   }
 
@@ -1043,6 +1060,11 @@ class MainWindowController: PlayerWindowController {
     player.rememberAISubtitleSourceLanguageForCurrentMedia(sourceCode)
     aiSubtitleLanguageConfirmationHUD.isHidden = true
     player.generateAISubtitlesUsingSavedPreferences(showConfigurationIfNeeded: true)
+  }
+
+  @objc private func cancelAISubtitleLanguageConfirmation(_ sender: NSButton) {
+    aiSubtitleConfirmationSourceCode = nil
+    aiSubtitleLanguageConfirmationHUD.isHidden = true
   }
 
   private func updateAISubtitleProgressHUD() {
