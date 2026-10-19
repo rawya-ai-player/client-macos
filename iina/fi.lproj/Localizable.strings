@@ -565,3 +565,5 @@
 "ai_subtitle.more_languages" = "Lisää kieliä…";
 "ai_subtitle.confirm_languages" = "Vahvista kielet";
 "ai_subtitle.confirm_and_generate" = "Vahvista ja luo";
+"ai_subtitle.auto.only_when_missing" = "Luo vain, kun tekstitys puuttuu";
+"ai_subtitle.existing_subtitles_notice" = "Tässä videossa on jo tekstitys. Tekoälytekstitystä ei luoda automaattisesti.";

@@ -565,3 +565,5 @@
 "ai_subtitle.more_languages" = "Meer talen…";
 "ai_subtitle.confirm_languages" = "Talen bevestigen";
 "ai_subtitle.confirm_and_generate" = "Bevestigen en genereren";
+"ai_subtitle.auto.only_when_missing" = "Alleen genereren als ondertiteling ontbreekt";
+"ai_subtitle.existing_subtitles_notice" = "Deze video heeft al ondertiteling. AI-ondertiteling wordt niet automatisch gegenereerd.";

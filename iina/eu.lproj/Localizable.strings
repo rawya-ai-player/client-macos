@@ -565,3 +565,5 @@
 "ai_subtitle.more_languages" = "Hizkuntza gehiago…";
 "ai_subtitle.confirm_languages" = "Berretsi hizkuntzak";
 "ai_subtitle.confirm_and_generate" = "Berretsi eta sortu";
+"ai_subtitle.auto.only_when_missing" = "Sortu azpitituluak falta direnean soilik";
+"ai_subtitle.existing_subtitles_notice" = "Bideo honek azpitituluak ditu dagoeneko. AA bidezko azpitituluak ez dira automatikoki sortuko.";

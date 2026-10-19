@@ -565,3 +565,5 @@
 "ai_subtitle.more_languages" = "Meer tale…";
 "ai_subtitle.confirm_languages" = "Bevestig tale";
 "ai_subtitle.confirm_and_generate" = "Bevestig en genereer";
+"ai_subtitle.auto.only_when_missing" = "Genereer slegs wanneer onderskrifte ontbreek";
+"ai_subtitle.existing_subtitles_notice" = "Hierdie video het reeds onderskrifte. KI-onderskrifte sal nie outomaties gegenereer word nie.";

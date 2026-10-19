@@ -565,3 +565,5 @@
 "ai_subtitle.more_languages" = "Več jezikov…";
 "ai_subtitle.confirm_languages" = "Potrdi jezike";
 "ai_subtitle.confirm_and_generate" = "Potrdi in ustvari";
+"ai_subtitle.auto.only_when_missing" = "Ustvari samo, če ni podnapisov";
+"ai_subtitle.existing_subtitles_notice" = "Ta videoposnetek že ima podnapise. Podnapisi z umetno inteligenco ne bodo ustvarjeni samodejno.";

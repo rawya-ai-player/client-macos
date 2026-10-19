@@ -23,7 +23,7 @@ Rawya는 여러 언어의 영상을 보는 사용자를 위한 네이티브 macO
 
 - Apple 로컬 AI 자막: macOS 26 이상
 - Apple Silicon 기본 재생: macOS 12 이상
-- Intel Mac 기본 재생: macOS 10.15 이상
+- Intel Mac 기본 재생: macOS 12 이상
 
 ## 다운로드
 

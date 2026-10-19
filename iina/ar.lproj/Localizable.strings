@@ -565,3 +565,5 @@
 "ai_subtitle.more_languages" = "المزيد من اللغات…";
 "ai_subtitle.confirm_languages" = "تأكيد اللغات";
 "ai_subtitle.confirm_and_generate" = "تأكيد وإنشاء";
+"ai_subtitle.auto.only_when_missing" = "إنشاء الترجمة فقط عند عدم وجودها";
+"ai_subtitle.existing_subtitles_notice" = "يحتوي هذا الفيديو على ترجمة بالفعل. لن يتم إنشاء ترجمة بالذكاء الاصطناعي تلقائيًا.";

@@ -23,7 +23,7 @@
 
 - Apple 本地 AI 字幕：macOS 26 或更高版本
 - Apple 芯片基础播放：macOS 12 或更高版本
-- Intel Mac 基础播放：macOS 10.15 或更高版本
+- Intel Mac 基础播放：macOS 12 或更高版本
 
 ## 下载
 

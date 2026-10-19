@@ -23,7 +23,7 @@
 
 - Apple 本機 AI 字幕：macOS 26 或以上版本
 - Apple 晶片基本播放：macOS 12 或以上版本
-- Intel Mac 基本播放：macOS 10.15 或以上版本
+- Intel Mac 基本播放：macOS 12 或以上版本
 
 ## 下載
 

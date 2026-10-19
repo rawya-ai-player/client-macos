@@ -565,3 +565,5 @@
 "ai_subtitle.more_languages" = "थप भाषाहरू…";
 "ai_subtitle.confirm_languages" = "भाषाहरू पुष्टि गर्नुहोस्";
 "ai_subtitle.confirm_and_generate" = "पुष्टि गरेर सिर्जना गर्नुहोस्";
+"ai_subtitle.auto.only_when_missing" = "उपशीर्षक नभएको अवस्थामा मात्र बनाउनुहोस्";
+"ai_subtitle.existing_subtitles_notice" = "यस भिडियोमा पहिले नै उपशीर्षकहरू छन्। AI उपशीर्षकहरू स्वतः बनाइने छैनन्।";

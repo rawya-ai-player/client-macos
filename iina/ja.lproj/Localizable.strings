@@ -565,3 +565,5 @@
 "ai_subtitle.more_languages" = "その他の言語…";
 "ai_subtitle.confirm_languages" = "言語を確認";
 "ai_subtitle.confirm_and_generate" = "確認して生成";
+"ai_subtitle.auto.only_when_missing" = "字幕がない場合のみ生成";
+"ai_subtitle.existing_subtitles_notice" = "この動画にはすでに字幕があるため、AI字幕は自動生成されません。";

@@ -565,3 +565,5 @@
 "ai_subtitle.more_languages" = "Vairāk valodu…";
 "ai_subtitle.confirm_languages" = "Apstiprināt valodas";
 "ai_subtitle.confirm_and_generate" = "Apstiprināt un ģenerēt";
+"ai_subtitle.auto.only_when_missing" = "Ģenerēt tikai tad, ja nav subtitru";
+"ai_subtitle.existing_subtitles_notice" = "Šim videoklipam jau ir subtitri. MI subtitri netiks ģenerēti automātiski.";

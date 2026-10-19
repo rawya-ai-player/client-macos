@@ -157,6 +157,8 @@ class MainWindowController: PlayerWindowController {
   private var aiSubtitleConfirmationSourceCode: String?
   private var aiSubtitleConfirmationMediaURL: URL?
   private var aiSubtitleConfirmationWorkItem: DispatchWorkItem?
+  private let aiSubtitleSkippedHUD = NSVisualEffectView()
+  private var aiSubtitleSkippedHUDHideWorkItem: DispatchWorkItem?
 
   /** The quick setting sidebar (video, audio, subtitles). */
   lazy var quickSettingView: QuickSettingViewController = {
@@ -657,6 +659,7 @@ class MainWindowController: PlayerWindowController {
     addVideoViewToWindow()
     setupAISubtitleProgressHUD(in: cv)
     setupAISubtitleLanguageConfirmationHUD(in: cv)
+    setupAISubtitleSkippedHUD(in: cv)
 
     // gesture recognizer
     cv.addGestureRecognizer(magnificationGestureRecognizer)
@@ -714,6 +717,11 @@ class MainWindowController: PlayerWindowController {
     // add notification observers
 
     addObserver(to: .default, forName: .iinaFileLoaded, object: player) { [unowned self] _ in
+      self.aiSubtitleConfirmationMediaURL = nil
+      self.aiSubtitleConfirmationSourceCode = nil
+      self.aiSubtitleLanguageConfirmationHUD.isHidden = true
+      self.aiSubtitleSkippedHUDHideWorkItem?.cancel()
+      self.aiSubtitleSkippedHUD.isHidden = true
       self.quickSettingView.reload()
       self.scheduleAISubtitleLanguageConfirmationHUDUpdate()
     }
@@ -952,7 +960,16 @@ class MainWindowController: PlayerWindowController {
   private func scheduleAISubtitleLanguageConfirmationHUDUpdate() {
     aiSubtitleConfirmationWorkItem?.cancel()
     let workItem = DispatchWorkItem { [weak self] in
-      self?.updateAISubtitleLanguageConfirmationHUD()
+      guard let self = self else { return }
+      self.updateAISubtitleLanguageConfirmationHUD()
+      if self.player.shouldNotifyAISubtitleGenerationSkipped {
+        self.aiSubtitleSkippedHUD.isHidden = false
+        let hideWorkItem = DispatchWorkItem { [weak self] in
+          self?.aiSubtitleSkippedHUD.isHidden = true
+        }
+        self.aiSubtitleSkippedHUDHideWorkItem = hideWorkItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: hideWorkItem)
+      }
     }
     aiSubtitleConfirmationWorkItem = workItem
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.9, execute: workItem)
@@ -1057,14 +1074,47 @@ class MainWindowController: PlayerWindowController {
 
   @objc private func confirmAISubtitleLanguageAndGenerate(_ sender: NSButton) {
     guard let sourceCode = aiSubtitleConfirmationSourceCode else { return }
+    player.dismissAISubtitleLanguageConfirmation()
     player.rememberAISubtitleSourceLanguageForCurrentMedia(sourceCode)
     aiSubtitleLanguageConfirmationHUD.isHidden = true
     player.generateAISubtitlesUsingSavedPreferences(showConfigurationIfNeeded: true)
   }
 
   @objc private func cancelAISubtitleLanguageConfirmation(_ sender: NSButton) {
+    player.dismissAISubtitleLanguageConfirmation()
     aiSubtitleConfirmationSourceCode = nil
     aiSubtitleLanguageConfirmationHUD.isHidden = true
+  }
+
+  private func setupAISubtitleSkippedHUD(in contentView: NSView) {
+    let hud = aiSubtitleSkippedHUD
+    hud.appearance = NSAppearance(named: .vibrantDark)
+    hud.material = .hudWindow
+    hud.blendingMode = .withinWindow
+    hud.state = .active
+    hud.wantsLayer = true
+    hud.layer?.cornerRadius = 8
+    hud.translatesAutoresizingMaskIntoConstraints = false
+    hud.isHidden = true
+    let label = NSTextField(wrappingLabelWithString: aiSubtitleLocalized(
+      "ai_subtitle.existing_subtitles_notice",
+      fallback: "This video already has subtitles. AI subtitles won't be generated automatically."
+    ))
+    label.font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+    label.textColor = .white
+    label.translatesAutoresizingMaskIntoConstraints = false
+    hud.addSubview(label)
+    contentView.addSubview(hud, positioned: .above, relativeTo: nil)
+    NSLayoutConstraint.activate([
+      hud.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 46),
+      hud.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+      hud.leadingAnchor.constraint(greaterThanOrEqualTo: contentView.leadingAnchor, constant: 16),
+      hud.widthAnchor.constraint(lessThanOrEqualToConstant: 360),
+      label.leadingAnchor.constraint(equalTo: hud.leadingAnchor, constant: 14),
+      label.trailingAnchor.constraint(equalTo: hud.trailingAnchor, constant: -14),
+      label.topAnchor.constraint(equalTo: hud.topAnchor, constant: 10),
+      label.bottomAnchor.constraint(equalTo: hud.bottomAnchor, constant: -10)
+    ])
   }
 
   private func updateAISubtitleProgressHUD() {

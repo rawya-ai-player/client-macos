@@ -565,3 +565,5 @@
 "ai_subtitle.more_languages" = "ಇನ್ನಷ್ಟು ಭಾಷೆಗಳು…";
 "ai_subtitle.confirm_languages" = "ಭಾಷೆಗಳನ್ನು ಖಚಿತಪಡಿಸಿ";
 "ai_subtitle.confirm_and_generate" = "ಖಚಿತಪಡಿಸಿ ಮತ್ತು ರಚಿಸಿ";
+"ai_subtitle.auto.only_when_missing" = "ಉಪಶೀರ್ಷಿಕೆಗಳು ಇಲ್ಲದಿದ್ದಾಗ ಮಾತ್ರ ರಚಿಸಿ";
+"ai_subtitle.existing_subtitles_notice" = "ಈ ವೀಡಿಯೊದಲ್ಲಿ ಈಗಾಗಲೇ ಉಪಶೀರ್ಷಿಕೆಗಳಿವೆ. AI ಉಪಶೀರ್ಷಿಕೆಗಳನ್ನು ಸ್ವಯಂಚಾಲಿತವಾಗಿ ರಚಿಸಲಾಗುವುದಿಲ್ಲ.";

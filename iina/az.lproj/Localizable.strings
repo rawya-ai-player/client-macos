@@ -565,3 +565,5 @@
 "ai_subtitle.more_languages" = "Daha çox dil…";
 "ai_subtitle.confirm_languages" = "Dilləri təsdiqləyin";
 "ai_subtitle.confirm_and_generate" = "Təsdiqlə və yarat";
+"ai_subtitle.auto.only_when_missing" = "Yalnız subtitrlər olmadıqda yarat";
+"ai_subtitle.existing_subtitles_notice" = "Bu videoda artıq subtitrlər var. Süni intellekt subtitrləri avtomatik yaradılmayacaq.";

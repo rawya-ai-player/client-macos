@@ -565,3 +565,5 @@
 "ai_subtitle.more_languages" = "مزید زبانیں…";
 "ai_subtitle.confirm_languages" = "زبانوں کی تصدیق";
 "ai_subtitle.confirm_and_generate" = "تصدیق کریں اور بنائیں";
+"ai_subtitle.auto.only_when_missing" = "صرف ذیلی عنوانات نہ ہونے پر بنائیں";
+"ai_subtitle.existing_subtitles_notice" = "اس ویڈیو میں پہلے سے ذیلی عنوانات موجود ہیں۔ AI ذیلی عنوانات خودکار طور پر نہیں بنائے جائیں گے۔";

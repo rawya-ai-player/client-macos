@@ -565,3 +565,5 @@
 "ai_subtitle.more_languages" = "Daha Fazla Dil…";
 "ai_subtitle.confirm_languages" = "Dilleri Onayla";
 "ai_subtitle.confirm_and_generate" = "Onayla ve Oluştur";
+"ai_subtitle.auto.only_when_missing" = "Yalnızca altyazı yoksa oluştur";
+"ai_subtitle.existing_subtitles_notice" = "Bu videoda zaten altyazı var. Yapay zekâ altyazıları otomatik olarak oluşturulmayacak.";

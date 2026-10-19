@@ -267,7 +267,7 @@
 "ai_subtitle.generation_settings" = "產生設定";
 "ai_subtitle.auto.always" = "自動按預設語言產生";
 "ai_subtitle.auto.when_missing" = "無字幕時按預設語言產生";
-"ai_subtitle.auto.manual" = "僅手動產生";
+"ai_subtitle.auto.manual" = "手動產生";
 "ai_subtitle.setup_title" = "初始化 AI 字幕";
 "ai_subtitle.setup_message" = "選擇本機或遠端 AI，並完成一次性初始化。";
 "ai_subtitle.setup_later" = "暫不初始化";
@@ -728,8 +728,10 @@
 "ai_subtitle.auto.confirm_language" = "手動確認語言後產生";
 "ai_subtitle.auto.always_description" = "適合經常觀看同一種語言的影片，開啟後直接產生。";
 "ai_subtitle.auto.when_missing_description" = "優先使用現有字幕，僅在沒有字幕時自動產生。";
-"ai_subtitle.auto.confirm_language_description" = "適合多種語言的影片交錯觀看，確認原聲語言後產生。";
+"ai_subtitle.auto.confirm_language_description" = "開啟影片時確認原聲語言，點擊確認後開始產生。";
 "ai_subtitle.auto.manual_description" = "適合偶爾使用 AI 字幕，需要時再手動產生。";
 "ai_subtitle.more_languages" = "更多語言…";
 "ai_subtitle.confirm_languages" = "確認語言";
 "ai_subtitle.confirm_and_generate" = "確認並產生";
+"ai_subtitle.auto.only_when_missing" = "僅在沒有字幕時產生";
+"ai_subtitle.existing_subtitles_notice" = "目前影片已有字幕，不會自動產生 AI 字幕";

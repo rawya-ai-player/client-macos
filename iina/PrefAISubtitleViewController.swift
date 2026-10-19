@@ -221,6 +221,7 @@ final class PrefAISubtitleViewController: PreferenceViewController, PreferenceWi
   private let localPlanSelectionButton = NSButton(radioButtonWithTitle: "", target: nil, action: nil)
   private let remotePlanSelectionButton = NSButton(radioButtonWithTitle: "", target: nil, action: nil)
   private var autoModeButtons: [NSButton] = []
+  private var onlyWhenMissingCheckboxes: [NSButton] = []
   private let sourcePopup = NSPopUpButton()
   private let targetPopup = NSPopUpButton()
   private let preparationTargetPopup = NSPopUpButton()
@@ -277,6 +278,7 @@ final class PrefAISubtitleViewController: PreferenceViewController, PreferenceWi
   private var preparationErrorMessage: String?
   private weak var preferenceWindow: NSWindow?
   private var windowWillCloseObserver: NSObjectProtocol?
+  private var generationSettingsObserver: NSObjectProtocol?
 
   override func loadView() {
     view = NSView(frame: NSRect(x: 0, y: 0, width: 760, height: 1))
@@ -292,6 +294,11 @@ final class PrefAISubtitleViewController: PreferenceViewController, PreferenceWi
     ) { [weak self] notification in
       self?.preferenceWindowWillClose(notification)
     }
+    generationSettingsObserver = NotificationCenter.default.addObserver(
+      forName: UserDefaults.didChangeNotification, object: defaults, queue: .main
+    ) { [weak self] _ in
+      self?.refreshAutoModeSelection()
+    }
     isLocalPlanReady = AISubtitleInitializationState().isPrepared(.apple)
     buildUI()
     restoreSelections()
@@ -303,6 +310,9 @@ final class PrefAISubtitleViewController: PreferenceViewController, PreferenceWi
     batchDownloadTask?.cancel()
     if let windowWillCloseObserver {
       NotificationCenter.default.removeObserver(windowWillCloseObserver)
+    }
+    if let generationSettingsObserver {
+      NotificationCenter.default.removeObserver(generationSettingsObserver)
     }
   }
 
@@ -455,26 +465,14 @@ final class PrefAISubtitleViewController: PreferenceViewController, PreferenceWi
       fallback: "Generation"
     ), identifier: "SectionTitleAISubtitleAutomation")
     let options: [(AISubtitleAutoMode, String, String)] = [
-      (.always,
-       aiSubtitleLocalized("ai_subtitle.auto.always",
-                           fallback: "Generate automatically using default languages"),
+      (.automatic,
+       aiSubtitleLocalized("ai_subtitle.auto_mode", fallback: "Automatic generation"),
        aiSubtitleLocalized("ai_subtitle.auto.always_description",
-                           fallback: "Best for videos usually in the same language. Starts when a video opens.")),
-      (.whenMissing,
-       aiSubtitleLocalized("ai_subtitle.auto.when_missing",
-                           fallback: "Use default languages when subtitles are missing"),
-       aiSubtitleLocalized("ai_subtitle.auto.when_missing_description",
-                           fallback: "Uses existing subtitles first and generates only when none are available.")),
-      (.confirmLanguage,
-       aiSubtitleLocalized("ai_subtitle.auto.confirm_language",
-                           fallback: "Generate after confirming languages"),
-       aiSubtitleLocalized("ai_subtitle.auto.confirm_language_description",
-                           fallback: "Best when switching between video languages. Confirm the audio language to start.")),
+                           fallback: "Uses your default languages when a video opens.")),
       (.manual,
-       aiSubtitleLocalized("ai_subtitle.auto.manual",
-                           fallback: "Generate manually only"),
-       aiSubtitleLocalized("ai_subtitle.auto.manual_description",
-                           fallback: "Best for occasional use. Start AI subtitles only when needed."))
+       aiSubtitleLocalized("ai_subtitle.auto.manual", fallback: "Manual generation"),
+       aiSubtitleLocalized("ai_subtitle.auto.confirm_language_description",
+                           fallback: "Confirm the audio language when a video opens to start generating."))
     ]
     var optionViews: [NSView] = []
     autoModeButtons = options.map { mode, title, description in
@@ -492,12 +490,24 @@ final class PrefAISubtitleViewController: PreferenceViewController, PreferenceWi
       descriptionLabel.textColor = .secondaryLabelColor
       descriptionLabel.maximumNumberOfLines = 0
       descriptionLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-      let optionStack = NSStackView(views: [button, descriptionLabel])
+      let checkbox = NSButton(checkboxWithTitle: aiSubtitleLocalized(
+        "ai_subtitle.auto.only_when_missing", fallback: "Generate only when subtitles are missing"
+      ), target: self, action: #selector(onlyWhenMissingChanged(_:)))
+      checkbox.tag = mode.rawValue
+      checkbox.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+      if let cell = checkbox.cell as? NSButtonCell {
+        cell.lineBreakMode = .byWordWrapping
+        cell.wraps = true
+      }
+      onlyWhenMissingCheckboxes.append(checkbox)
+      let optionStack = NSStackView(views: [button, descriptionLabel, checkbox])
       optionStack.orientation = .vertical
       optionStack.alignment = .leading
       optionStack.spacing = 2
       descriptionLabel.leadingAnchor.constraint(equalTo: optionStack.leadingAnchor, constant: 22).isActive = true
       descriptionLabel.trailingAnchor.constraint(equalTo: optionStack.trailingAnchor).isActive = true
+      checkbox.leadingAnchor.constraint(equalTo: descriptionLabel.leadingAnchor).isActive = true
+      checkbox.trailingAnchor.constraint(lessThanOrEqualTo: optionStack.trailingAnchor).isActive = true
       optionViews.append(optionStack)
       return button
     }
@@ -1001,6 +1011,7 @@ final class PrefAISubtitleViewController: PreferenceViewController, PreferenceWi
     featureSwitch.state = hasUsableDefault && AISubtitleFeatureState().isEnabled ? .on : .off
     featureSwitch.isEnabled = hasUsableDefault
     autoModeButtons.forEach { $0.isEnabled = hasUsableDefault && !isPreparingAppleResources }
+    refreshAutoModeSelection()
     let hasSourceOptions = sourcePopup.itemArray.contains { $0.representedObject is String }
     let hasTargetOptions = targetPopup.itemArray.contains { $0.representedObject is String }
     targetPopup.isEnabled = hasUsableDefault && !isPreparingAppleResources && hasTargetOptions
@@ -1346,8 +1357,16 @@ final class PrefAISubtitleViewController: PreferenceViewController, PreferenceWi
     refreshSchemeAvailability()
   }
 
+  @objc private func onlyWhenMissingChanged(_ sender: NSButton) {
+    AISubtitleGenerationSettings().onlyWhenMissing = sender.state == .on
+    refreshAutoModeSelection()
+    PlayerCore.playerCores.forEach {
+      NotificationCenter.default.post(name: .iinaAISubtitleStateDidChange, object: $0)
+    }
+  }
+
   @objc private func autoModeChanged(_ sender: NSButton) {
-    AISubtitleAutoMode.current = AISubtitleAutoMode(rawValue: sender.tag) ?? .whenMissing
+    AISubtitleAutoMode.current = AISubtitleAutoMode(rawValue: sender.tag) ?? .automatic
     refreshAutoModeSelection()
     PlayerCore.playerCores.forEach {
       NotificationCenter.default.post(name: .iinaAISubtitleStateDidChange, object: $0)
@@ -1358,6 +1377,12 @@ final class PrefAISubtitleViewController: PreferenceViewController, PreferenceWi
     let selectedMode = AISubtitleAutoMode.current
     for button in autoModeButtons {
       button.state = button.tag == selectedMode.rawValue ? .on : .off
+    }
+    let onlyWhenMissing = AISubtitleGenerationSettings().onlyWhenMissing
+    onlyWhenMissingCheckboxes.forEach {
+      $0.state = onlyWhenMissing ? .on : .off
+      $0.isEnabled = $0.tag == selectedMode.rawValue
+        && autoModeButtons.first(where: { $0.tag == selectedMode.rawValue })?.isEnabled == true
     }
   }
 

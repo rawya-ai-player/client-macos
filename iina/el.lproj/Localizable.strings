@@ -565,3 +565,5 @@
 "ai_subtitle.more_languages" = "Περισσότερες γλώσσες…";
 "ai_subtitle.confirm_languages" = "Επιβεβαίωση γλωσσών";
 "ai_subtitle.confirm_and_generate" = "Επιβεβαίωση και δημιουργία";
+"ai_subtitle.auto.only_when_missing" = "Δημιουργία μόνο όταν λείπουν υπότιτλοι";
+"ai_subtitle.existing_subtitles_notice" = "Αυτό το βίντεο έχει ήδη υπότιτλους. Δεν θα δημιουργηθούν αυτόματα υπότιτλοι AI.";

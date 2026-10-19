@@ -565,3 +565,5 @@
 "ai_subtitle.more_languages" = "மேலும் மொழிகள்…";
 "ai_subtitle.confirm_languages" = "மொழிகளை உறுதிசெய்யவும்";
 "ai_subtitle.confirm_and_generate" = "உறுதிசெய்து உருவாக்கவும்";
+"ai_subtitle.auto.only_when_missing" = "வசனங்கள் இல்லாதபோது மட்டும் உருவாக்கு";
+"ai_subtitle.existing_subtitles_notice" = "இந்த வீடியோவில் ஏற்கனவே வசனங்கள் உள்ளன. AI வசனங்கள் தானாக உருவாக்கப்படாது.";

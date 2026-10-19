@@ -4,8 +4,8 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 build_home="${RAWYA_LOCAL_BUILD_HOME:-${HOME}/Library/Developer/Rawya}"
-cache_root="${build_home}/BuildCache"
-archive_root="${build_home}/Builds"
+cache_root="${RAWYA_LOCAL_CACHE_ROOT:-${build_home}/BuildCache}"
+archive_root="${RAWYA_LOCAL_ARCHIVE_ROOT:-${build_home}/Builds}"
 configuration="Debug"
 derived_data="${cache_root}/DerivedData"
 source_packages="${cache_root}/SourcePackages"
@@ -39,6 +39,7 @@ DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer" \
   -derivedDataPath "$derived_data" \
   CURRENT_PROJECT_VERSION="$build_number" \
   CODE_SIGNING_ALLOWED=NO \
+  "$@" \
   build
 
 if [[ ! -d "$product_path" ]]; then

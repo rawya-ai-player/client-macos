@@ -565,3 +565,5 @@
 "ai_subtitle.more_languages" = "Bahasa Lainnya…";
 "ai_subtitle.confirm_languages" = "Konfirmasi Bahasa";
 "ai_subtitle.confirm_and_generate" = "Konfirmasi dan Buat";
+"ai_subtitle.auto.only_when_missing" = "Buat hanya jika tidak ada takarir";
+"ai_subtitle.existing_subtitles_notice" = "Video ini sudah memiliki takarir. Takarir AI tidak akan dibuat secara otomatis.";

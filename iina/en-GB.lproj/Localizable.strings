@@ -497,7 +497,7 @@
 "ai_subtitle.plan.local_pair_unavailable" = "The current language combination is unavailable on this Mac.";
 
 "ai_subtitle.auto.always" = "Generate automatically using default languages";
-"ai_subtitle.auto.manual" = "Generate manually only";
+"ai_subtitle.auto.manual" = "Manual generation";
 "ai_subtitle.auto.when_missing" = "Use default languages when subtitles are missing";
 "ai_subtitle.auto_mode" = "Automatic generation";
 "ai_subtitle.cache_description" = "Clearing the cache does not delete subtitle files beside videos.";
@@ -560,8 +560,10 @@
 "ai_subtitle.auto.confirm_language" = "Generate after confirming languages";
 "ai_subtitle.auto.always_description" = "Best for videos usually in the same language. Starts when a video opens.";
 "ai_subtitle.auto.when_missing_description" = "Uses existing subtitles first and generates only when none are available.";
-"ai_subtitle.auto.confirm_language_description" = "Best when switching between video languages. Confirm the audio language to start.";
+"ai_subtitle.auto.confirm_language_description" = "Confirm the audio language when a video opens to start generating.";
 "ai_subtitle.auto.manual_description" = "Best for occasional use. Start AI subtitles only when needed.";
 "ai_subtitle.more_languages" = "More Languages…";
 "ai_subtitle.confirm_languages" = "Confirm Languages";
 "ai_subtitle.confirm_and_generate" = "Confirm and Generate";
+"ai_subtitle.auto.only_when_missing" = "Generate only when subtitles are missing";
+"ai_subtitle.existing_subtitles_notice" = "This video already has subtitles. AI subtitles won't be generated automatically.";

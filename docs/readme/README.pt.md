@@ -23,7 +23,7 @@ Rawya é um reprodutor nativo para macOS feito para quem assiste a vídeos em di
 
 - Legendas com IA local da Apple: macOS 26 ou posterior
 - Reprodução básica em Apple Silicon: macOS 12 ou posterior
-- Reprodução básica em Intel Mac: macOS 10.15 ou posterior
+- Reprodução básica em Intel Mac: macOS 12 ou posterior
 
 ## Baixar
 

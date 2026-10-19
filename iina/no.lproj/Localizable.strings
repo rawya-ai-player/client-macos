@@ -565,3 +565,5 @@
 "ai_subtitle.more_languages" = "Flere språk…";
 "ai_subtitle.confirm_languages" = "Bekreft språk";
 "ai_subtitle.confirm_and_generate" = "Bekreft og generer";
+"ai_subtitle.auto.only_when_missing" = "Generer bare når undertekster mangler";
+"ai_subtitle.existing_subtitles_notice" = "Denne videoen har allerede undertekster. KI-undertekster genereres ikke automatisk.";

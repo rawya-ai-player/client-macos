@@ -565,3 +565,5 @@
 "ai_subtitle.more_languages" = "다른 언어…";
 "ai_subtitle.confirm_languages" = "언어 확인";
 "ai_subtitle.confirm_and_generate" = "확인 후 생성";
+"ai_subtitle.auto.only_when_missing" = "자막이 없을 때만 생성";
+"ai_subtitle.existing_subtitles_notice" = "이 동영상에는 이미 자막이 있어 AI 자막이 자동으로 생성되지 않습니다.";

@@ -566,3 +566,5 @@ Nočné zostavy sa neodporúčajú používať ako denný ovládač. V súčasno
 "ai_subtitle.more_languages" = "Ďalšie jazyky…";
 "ai_subtitle.confirm_languages" = "Potvrdiť jazyky";
 "ai_subtitle.confirm_and_generate" = "Potvrdiť a generovať";
+"ai_subtitle.auto.only_when_missing" = "Generovať iba pri chýbajúcich titulkoch";
+"ai_subtitle.existing_subtitles_notice" = "Toto video už má titulky. AI titulky sa nebudú generovať automaticky.";

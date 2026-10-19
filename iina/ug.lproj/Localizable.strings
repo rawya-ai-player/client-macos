@@ -565,3 +565,5 @@
 "ai_subtitle.more_languages" = "تېخىمۇ كۆپ تىل…";
 "ai_subtitle.confirm_languages" = "تىللارنى جەزملەشتۈرۈش";
 "ai_subtitle.confirm_and_generate" = "جەزملەشتۈرۈپ ھاسىللاش";
+"ai_subtitle.auto.only_when_missing" = "پەقەت خەتلىك چۈشەندۈرۈش يوق ۋاقىتتا ھاسىل قىلىش";
+"ai_subtitle.existing_subtitles_notice" = "بۇ سىندا خەتلىك چۈشەندۈرۈش بار. AI خەتلىك چۈشەندۈرۈش ئاپتوماتىك ھاسىل قىلىنمايدۇ.";

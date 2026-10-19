@@ -565,3 +565,5 @@
 "ai_subtitle.more_languages" = "Ngôn ngữ khác…";
 "ai_subtitle.confirm_languages" = "Xác nhận ngôn ngữ";
 "ai_subtitle.confirm_and_generate" = "Xác nhận và tạo";
+"ai_subtitle.auto.only_when_missing" = "Chỉ tạo khi chưa có phụ đề";
+"ai_subtitle.existing_subtitles_notice" = "Video này đã có phụ đề. Phụ đề AI sẽ không được tạo tự động.";

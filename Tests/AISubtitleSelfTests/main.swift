@@ -143,14 +143,57 @@ expect(!AISubtitleSuggestionPolicy.shouldPresent(scheduledMediaURL: suggestionMe
                                                     hasSubtitleTracks: false,
                                                     hasExportableAISubtitles: false),
        "Stale, inactive, or silent media should not show the AI subtitle suggestion")
-expect(AISubtitleAutoMode.always.shouldStart(hasSubtitleTracks: true, hasCompleteAIResult: false)
-       && AISubtitleAutoMode.whenMissing.shouldStart(hasSubtitleTracks: false, hasCompleteAIResult: false)
-       && !AISubtitleAutoMode.whenMissing.shouldStart(hasSubtitleTracks: true, hasCompleteAIResult: false)
-       && !AISubtitleAutoMode.confirmLanguage.shouldStart(hasSubtitleTracks: false, hasCompleteAIResult: false)
-       && AISubtitleAutoMode.confirmLanguage.requiresLanguageConfirmation
-       && !AISubtitleAutoMode.manual.shouldStart(hasSubtitleTracks: false, hasCompleteAIResult: false)
-       && !AISubtitleAutoMode.always.shouldStart(hasSubtitleTracks: false, hasCompleteAIResult: true),
-       "Automatic generation modes should respect existing subtitles and reusable complete results")
+let generationSuiteName = "ai-subtitle-generation-\(UUID().uuidString)"
+let generationDefaults = UserDefaults(suiteName: generationSuiteName)!
+defer { generationDefaults.removePersistentDomain(forName: generationSuiteName) }
+let generationSettings = AISubtitleGenerationSettings(userDefaults: generationDefaults)
+expect(AISubtitleAutoMode.allCases.count == 2
+       && generationSettings.mode == .automatic && generationSettings.onlyWhenMissing,
+       "Fresh generation settings should have two modes and skip existing subtitles by default")
+for (legacyValue, mode, onlyWhenMissing) in [
+  (0, AISubtitleAutoMode.automatic, false), (1, .automatic, true),
+  (2, .manual, true), (3, .manual, true)
+] {
+  generationDefaults.removePersistentDomain(forName: generationSuiteName)
+  generationDefaults.set(legacyValue, forKey: AISubtitleAutoMode.defaultsKey)
+  expect(generationSettings.mode == mode && generationSettings.onlyWhenMissing == onlyWhenMissing,
+         "Legacy generation mode \(legacyValue) should preserve its behavior")
+  generationSettings.mode = .manual
+  generationSettings.mode = .automatic
+  expect(generationSettings.onlyWhenMissing == onlyWhenMissing,
+         "Switching modes must preserve the migrated subtitle restriction")
+}
+for mode in AISubtitleAutoMode.allCases {
+  generationSettings.mode = mode
+  for onlyWhenMissing in [true, false] {
+    generationSettings.onlyWhenMissing = onlyWhenMissing
+    for hasTracks in [true, false] {
+      for hasCompleteResult in [true, false] {
+        let eligible = !hasCompleteResult && (!onlyWhenMissing || !hasTracks)
+        expect(generationSettings.shouldStart(hasSubtitleTracks: hasTracks,
+                                               hasCompleteAIResult: hasCompleteResult)
+               == (mode == .automatic && eligible),
+               "Automatic generation must respect the checkbox and reuse complete results")
+        expect(generationSettings.shouldConfirm(hasSubtitleTracks: hasTracks,
+                                                 hasCompleteAIResult: hasCompleteResult,
+                                                 isDismissed: false)
+               == (mode == .manual && eligible),
+               "Manual confirmation must respect the checkbox and reuse complete results")
+        expect(!generationSettings.shouldConfirm(hasSubtitleTracks: hasTracks,
+                                                  hasCompleteAIResult: hasCompleteResult,
+                                                  isDismissed: true),
+               "A dismissed confirmation must stay hidden on every refresh, regardless of mode or subtitles")
+        expect(generationSettings.shouldSkip(hasSubtitleTracks: hasTracks,
+                                              hasCompleteAIResult: hasCompleteResult)
+               == (onlyWhenMissing && (hasTracks || hasCompleteResult)),
+               "Both modes must explain skipping only when the subtitle restriction applies")
+      }
+    }
+    let reloaded = AISubtitleGenerationSettings(userDefaults: generationDefaults)
+    expect(reloaded.mode == mode && reloaded.onlyWhenMissing == onlyWhenMissing,
+           "Both mode and checkbox must survive reloading preferences")
+  }
+}
 let initializationSuiteName = "ai-subtitle-initialization-\(UUID().uuidString)"
 let initializationDefaults = UserDefaults(suiteName: initializationSuiteName)!
 defer { initializationDefaults.removePersistentDomain(forName: initializationSuiteName) }

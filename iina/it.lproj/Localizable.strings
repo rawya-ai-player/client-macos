@@ -565,3 +565,5 @@
 "ai_subtitle.more_languages" = "Altre lingue…";
 "ai_subtitle.confirm_languages" = "Conferma lingue";
 "ai_subtitle.confirm_and_generate" = "Conferma e genera";
+"ai_subtitle.auto.only_when_missing" = "Genera solo se mancano i sottotitoli";
+"ai_subtitle.existing_subtitles_notice" = "Questo video ha già i sottotitoli. I sottotitoli IA non verranno generati automaticamente.";

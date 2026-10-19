@@ -23,7 +23,7 @@ Rawyaは、さまざまな言語の動画を見る人のためのmacOSネイテ�
 
 - AppleローカルAI字幕：macOS 26以降
 - Appleシリコンでの基本再生：macOS 12以降
-- Intel Macでの基本再生：macOS 10.15以降
+- Intel Macでの基本再生：macOS 12以降
 
 ## ダウンロード
 
