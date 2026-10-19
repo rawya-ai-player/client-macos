@@ -565,3 +565,5 @@
 "ai_subtitle.more_languages" = "Fleiri tungumál…";
 "ai_subtitle.confirm_languages" = "Staðfesta tungumál";
 "ai_subtitle.confirm_and_generate" = "Staðfesta og mynda";
+"ai_subtitle.auto.only_when_missing" = "Búa aðeins til þegar skjátexta vantar";
+"ai_subtitle.existing_subtitles_notice" = "Þetta myndskeið er þegar með skjátexta. Gervigreindarskjátextar verða ekki búnir til sjálfkrafa.";

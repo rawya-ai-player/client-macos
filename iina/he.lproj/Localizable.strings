@@ -565,3 +565,5 @@
 "ai_subtitle.more_languages" = "שפות נוספות…";
 "ai_subtitle.confirm_languages" = "אישור שפות";
 "ai_subtitle.confirm_and_generate" = "אישור ויצירה";
+"ai_subtitle.auto.only_when_missing" = "יצירה רק כשאין כתוביות";
+"ai_subtitle.existing_subtitles_notice" = "לסרטון הזה כבר יש כתוביות. כתוביות בינה מלאכותית לא ייווצרו אוטומטית.";

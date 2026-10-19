@@ -565,3 +565,5 @@
 "ai_subtitle.more_languages" = "ภาษาเพิ่มเติม…";
 "ai_subtitle.confirm_languages" = "ยืนยันภาษา";
 "ai_subtitle.confirm_and_generate" = "ยืนยันและสร้าง";
+"ai_subtitle.auto.only_when_missing" = "สร้างเฉพาะเมื่อไม่มีคำบรรยาย";
+"ai_subtitle.existing_subtitles_notice" = "วิดีโอนี้มีคำบรรยายอยู่แล้ว จึงจะไม่สร้างคำบรรยาย AI โดยอัตโนมัติ";

@@ -565,3 +565,5 @@
 "ai_subtitle.more_languages" = "കൂടുതൽ ഭാഷകൾ…";
 "ai_subtitle.confirm_languages" = "ഭാഷകൾ സ്ഥിരീകരിക്കുക";
 "ai_subtitle.confirm_and_generate" = "സ്ഥിരീകരിച്ച് സൃഷ്ടിക്കുക";
+"ai_subtitle.auto.only_when_missing" = "സബ്ടൈറ്റിലുകൾ ഇല്ലെങ്കിൽ മാത്രം സൃഷ്ടിക്കുക";
+"ai_subtitle.existing_subtitles_notice" = "ഈ വീഡിയോയിൽ ഇതിനകം സബ്ടൈറ്റിലുകൾ ഉണ്ട്. AI സബ്ടൈറ്റിലുകൾ സ്വയമേവ സൃഷ്ടിക്കില്ല.";

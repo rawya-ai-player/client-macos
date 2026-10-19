@@ -23,7 +23,7 @@ Rawya ist ein nativer macOS-Player für Menschen, die Videos in verschiedenen Sp
 
 - Lokale Apple-KI-Untertitel: macOS 26 oder neuer
 - Basiswiedergabe auf Apple Silicon: macOS 12 oder neuer
-- Basiswiedergabe auf Intel Mac: macOS 10.15 oder neuer
+- Basiswiedergabe auf Intel Mac: macOS 12 oder neuer
 
 ## Download
 

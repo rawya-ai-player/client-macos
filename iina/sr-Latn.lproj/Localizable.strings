@@ -565,3 +565,5 @@
 "ai_subtitle.more_languages" = "Više jezika…";
 "ai_subtitle.confirm_languages" = "Potvrdi jezike";
 "ai_subtitle.confirm_and_generate" = "Potvrdi i generiši";
+"ai_subtitle.auto.only_when_missing" = "Generiši samo kada nema titlova";
+"ai_subtitle.existing_subtitles_notice" = "Ovaj video već ima titlove. AI titlovi se neće automatski generisati.";

@@ -23,7 +23,7 @@ Rawya est un lecteur natif pour macOS conçu pour regarder des vidéos dans diff
 
 - Sous-titres IA locaux Apple : macOS 26 ou ultérieur
 - Lecture de base sur Apple Silicon : macOS 12 ou ultérieur
-- Lecture de base sur Intel Mac : macOS 10.15 ou ultérieur
+- Lecture de base sur Intel Mac : macOS 12 ou ultérieur
 
 ## Télécharger
 

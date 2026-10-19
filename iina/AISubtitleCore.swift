@@ -36,35 +36,66 @@ enum AISubtitleProviderID: String, Codable, CaseIterable {
 enum AISubtitleAutoMode: Int, Codable, CaseIterable {
   static let defaultsKey = "aiSubtitle.autoMode"
 
-  case always = 0
-  case whenMissing = 1
+  case automatic = 0
   case manual = 2
-  case confirmLanguage = 3
 
   static var current: AISubtitleAutoMode {
     get {
-      guard UserDefaults.standard.object(forKey: defaultsKey) != nil else { return .whenMissing }
-      return AISubtitleAutoMode(rawValue: UserDefaults.standard.integer(forKey: defaultsKey)) ?? .whenMissing
+      AISubtitleGenerationSettings().mode
     }
     set {
-      UserDefaults.standard.set(newValue.rawValue, forKey: defaultsKey)
-    }
-  }
-
-  func shouldStart(hasSubtitleTracks: Bool, hasCompleteAIResult: Bool) -> Bool {
-    guard !hasCompleteAIResult else { return false }
-    switch self {
-    case .always:
-      return true
-    case .whenMissing:
-      return !hasSubtitleTracks
-    case .confirmLanguage, .manual:
-      return false
+      AISubtitleGenerationSettings().mode = newValue
     }
   }
 
   var requiresLanguageConfirmation: Bool {
-    self == .confirmLanguage
+    self == .manual
+  }
+}
+
+struct AISubtitleGenerationSettings {
+  static let onlyWhenMissingDefaultsKey = "aiSubtitle.onlyWhenMissing"
+
+  var userDefaults: UserDefaults = .standard
+
+  var mode: AISubtitleAutoMode {
+    get {
+      switch userDefaults.integer(forKey: AISubtitleAutoMode.defaultsKey) {
+      case 2, 3: return .manual
+      default: return .automatic
+      }
+    }
+    nonmutating set {
+      // Preserve the old "always" preference before replacing its mode value.
+      userDefaults.set(onlyWhenMissing, forKey: Self.onlyWhenMissingDefaultsKey)
+      userDefaults.set(newValue.rawValue, forKey: AISubtitleAutoMode.defaultsKey)
+    }
+  }
+
+  var onlyWhenMissing: Bool {
+    get {
+      if userDefaults.object(forKey: Self.onlyWhenMissingDefaultsKey) != nil {
+        return userDefaults.bool(forKey: Self.onlyWhenMissingDefaultsKey)
+      }
+      return (userDefaults.object(forKey: AISubtitleAutoMode.defaultsKey) as? Int) != 0
+    }
+    nonmutating set {
+      userDefaults.set(newValue, forKey: Self.onlyWhenMissingDefaultsKey)
+    }
+  }
+
+  func shouldSkip(hasSubtitleTracks: Bool, hasCompleteAIResult: Bool) -> Bool {
+    onlyWhenMissing && (hasSubtitleTracks || hasCompleteAIResult)
+  }
+
+  func shouldStart(hasSubtitleTracks: Bool, hasCompleteAIResult: Bool) -> Bool {
+    mode == .automatic && !hasCompleteAIResult
+      && !shouldSkip(hasSubtitleTracks: hasSubtitleTracks, hasCompleteAIResult: hasCompleteAIResult)
+  }
+
+  func shouldConfirm(hasSubtitleTracks: Bool, hasCompleteAIResult: Bool, isDismissed: Bool) -> Bool {
+    mode == .manual && !hasCompleteAIResult && !isDismissed
+      && !shouldSkip(hasSubtitleTracks: hasSubtitleTracks, hasCompleteAIResult: hasCompleteAIResult)
   }
 }
 

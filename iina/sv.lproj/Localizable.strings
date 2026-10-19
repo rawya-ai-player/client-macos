@@ -565,3 +565,5 @@
 "ai_subtitle.more_languages" = "Fler språk…";
 "ai_subtitle.confirm_languages" = "Bekräfta språk";
 "ai_subtitle.confirm_and_generate" = "Bekräfta och generera";
+"ai_subtitle.auto.only_when_missing" = "Generera endast när undertexter saknas";
+"ai_subtitle.existing_subtitles_notice" = "Den här videon har redan undertexter. AI-undertexter genereras inte automatiskt.";

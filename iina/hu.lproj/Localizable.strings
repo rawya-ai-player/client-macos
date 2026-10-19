@@ -565,3 +565,5 @@
 "ai_subtitle.more_languages" = "További nyelvek…";
 "ai_subtitle.confirm_languages" = "Nyelvek megerősítése";
 "ai_subtitle.confirm_and_generate" = "Megerősítés és létrehozás";
+"ai_subtitle.auto.only_when_missing" = "Létrehozás csak hiányzó felirat esetén";
+"ai_subtitle.existing_subtitles_notice" = "Ez a videó már rendelkezik felirattal. Az AI-feliratok nem jönnek létre automatikusan.";

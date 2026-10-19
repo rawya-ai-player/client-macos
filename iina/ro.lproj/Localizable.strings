@@ -565,3 +565,5 @@
 "ai_subtitle.more_languages" = "Mai multe limbi…";
 "ai_subtitle.confirm_languages" = "Confirmă limbile";
 "ai_subtitle.confirm_and_generate" = "Confirmă și generează";
+"ai_subtitle.auto.only_when_missing" = "Generează doar când lipsesc subtitrările";
+"ai_subtitle.existing_subtitles_notice" = "Acest videoclip are deja subtitrări. Subtitrările AI nu vor fi generate automat.";

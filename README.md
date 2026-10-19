@@ -43,7 +43,7 @@ Rawya is a native macOS media player for people who watch videos in different la
 
 - Apple local AI subtitles: macOS 26 or later
 - Basic playback on Apple silicon: macOS 12 or later
-- Basic playback on Intel Mac: macOS 10.15 or later
+- Basic playback on Intel Mac: macOS 12 or later
 
 ## Download
 

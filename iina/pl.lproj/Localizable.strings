@@ -566,3 +566,5 @@
 "ai_subtitle.more_languages" = "Więcej języków…";
 "ai_subtitle.confirm_languages" = "Potwierdź języki";
 "ai_subtitle.confirm_and_generate" = "Potwierdź i generuj";
+"ai_subtitle.auto.only_when_missing" = "Generuj tylko, gdy brakuje napisów";
+"ai_subtitle.existing_subtitles_notice" = "Ten film ma już napisy. Napisy AI nie zostaną wygenerowane automatycznie.";

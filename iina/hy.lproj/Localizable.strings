@@ -565,3 +565,5 @@
 "ai_subtitle.more_languages" = "Այլ լեզուներ…";
 "ai_subtitle.confirm_languages" = "Հաստատել լեզուները";
 "ai_subtitle.confirm_and_generate" = "Հաստատել և ստեղծել";
+"ai_subtitle.auto.only_when_missing" = "Ստեղծել միայն ենթագրերի բացակայության դեպքում";
+"ai_subtitle.existing_subtitles_notice" = "Այս տեսանյութն արդեն ունի ենթագրեր։ ԱԲ ենթագրերն ինքնաբերաբար չեն ստեղծվի։";

@@ -567,3 +567,5 @@
 "ai_subtitle.more_languages" = "زبان‌های بیشتر…";
 "ai_subtitle.confirm_languages" = "تأیید زبان‌ها";
 "ai_subtitle.confirm_and_generate" = "تأیید و تولید";
+"ai_subtitle.auto.only_when_missing" = "فقط در صورت نبود زیرنویس ایجاد شود";
+"ai_subtitle.existing_subtitles_notice" = "این ویدیو از قبل زیرنویس دارد. زیرنویس هوش مصنوعی به‌طور خودکار ایجاد نمی‌شود.";

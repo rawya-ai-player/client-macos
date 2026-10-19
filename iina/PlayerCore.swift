@@ -188,6 +188,7 @@ class PlayerCore: NSObject {
   private(set) var aiSubtitleActiveSourceLanguage: AISubtitleLanguage?
   private(set) var aiSubtitleActiveTargetLanguage: AISubtitleLanguage?
   private(set) var aiSubtitleSidecarURLs: [URL] = []
+  private(set) var aiSubtitleLanguageConfirmationDismissed = false
 
   private struct CompletedAISubtitleFile {
     var url: URL
@@ -211,15 +212,30 @@ class PlayerCore: NSObject {
   var isAISubtitleSystemSupported: Bool { AISubtitleSystemSupport.isSupported }
 
   var shouldConfirmAISubtitleLanguageBeforeGeneration: Bool {
-    AISubtitleAutoMode.current.requiresLanguageConfirmation
-      && AISubtitleSystemSupport.isSupported
+    isAISubtitleGenerationAvailable
+      && AISubtitleGenerationSettings().shouldConfirm(hasSubtitleTracks: hasNonAISubtitleTracks,
+                                                       hasCompleteAIResult: hasExportableAISubtitles,
+                                                       isDismissed: aiSubtitleLanguageConfirmationDismissed)
+  }
+
+  var shouldNotifyAISubtitleGenerationSkipped: Bool {
+    isAISubtitleGenerationAvailable
+      && AISubtitleGenerationSettings().shouldSkip(hasSubtitleTracks: hasNonAISubtitleTracks,
+                                                    hasCompleteAIResult: hasExportableAISubtitles)
+  }
+
+  private var isAISubtitleGenerationAvailable: Bool {
+    AISubtitleSystemSupport.isSupported
       && AISubtitleFeatureState().isEnabled
       && AISubtitleInitializationState().isComplete
-      && info.state.active
+      && info.state.loaded
       && info.currentURL != nil
       && !info.audioTracks.isEmpty
       && !isAISubtitleTaskRunning
-      && !hasExportableAISubtitles
+  }
+
+  func dismissAISubtitleLanguageConfirmation() {
+    aiSubtitleLanguageConfirmationDismissed = true
   }
 
   var recommendedAISubtitleProviderID: AISubtitleProviderID {
@@ -3051,6 +3067,7 @@ class PlayerCore: NSObject {
     guard info.state.active else { return }
     log("File started")
     stopAISubtitles()
+    aiSubtitleLanguageConfirmationDismissed = false
     aiSubtitleOriginalFileLoader.reset()
     aiSubtitleTranslatedFileLoader.reset()
     aiSubtitleActiveCacheKey = nil
@@ -3303,8 +3320,8 @@ class PlayerCore: NSObject {
     let complete = AISubtitleCacheStore().isComplete(for: selection.cacheKey,
                                                       mediaDuration: duration)
     let hasSubtitles = hasNonAISubtitleTracks
-    guard AISubtitleAutoMode.current.shouldStart(hasSubtitleTracks: hasSubtitles,
-                                                  hasCompleteAIResult: complete) else { return }
+    guard AISubtitleGenerationSettings().shouldStart(hasSubtitleTracks: hasSubtitles,
+                                                       hasCompleteAIResult: complete) else { return }
 
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
       guard let self = self,
@@ -3312,8 +3329,8 @@ class PlayerCore: NSObject {
             self.info.state.active,
             !self.isAISubtitleTaskRunning,
             AISubtitleFeatureState().isEnabled,
-            AISubtitleAutoMode.current.shouldStart(hasSubtitleTracks: self.hasNonAISubtitleTracks,
-                                                    hasCompleteAIResult: self.hasExportableAISubtitles) else { return }
+            AISubtitleGenerationSettings().shouldStart(hasSubtitleTracks: self.hasNonAISubtitleTracks,
+                                                         hasCompleteAIResult: self.hasExportableAISubtitles) else { return }
       self.generateAISubtitlesUsingSavedPreferences(showConfigurationIfNeeded: true)
     }
   }
@@ -3330,6 +3347,7 @@ class PlayerCore: NSObject {
 
   func generateAISubtitlesUsingSavedPreferences(showConfigurationIfNeeded: Bool = true,
                                                  forceRegeneration: Bool = false) {
+    dismissAISubtitleLanguageConfirmation()
     guard AISubtitleSystemSupport.isSupported else {
       _ = ensureAISubtitleSystemSupport()
       if showConfigurationIfNeeded { presentAISubtitleSystemUpgrade() }

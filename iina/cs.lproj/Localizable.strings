@@ -565,3 +565,5 @@
 "ai_subtitle.more_languages" = "Další jazyky…";
 "ai_subtitle.confirm_languages" = "Potvrdit jazyky";
 "ai_subtitle.confirm_and_generate" = "Potvrdit a generovat";
+"ai_subtitle.auto.only_when_missing" = "Generovat pouze při chybějících titulcích";
+"ai_subtitle.existing_subtitles_notice" = "Toto video již má titulky. AI titulky se nebudou automaticky generovat.";

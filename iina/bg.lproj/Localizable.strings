@@ -565,3 +565,5 @@
 "ai_subtitle.more_languages" = "Още езици…";
 "ai_subtitle.confirm_languages" = "Потвърждаване на езици";
 "ai_subtitle.confirm_and_generate" = "Потвърди и генерирай";
+"ai_subtitle.auto.only_when_missing" = "Генериране само при липса на субтитри";
+"ai_subtitle.existing_subtitles_notice" = "Това видео вече има субтитри. AI субтитри няма да се генерират автоматично.";

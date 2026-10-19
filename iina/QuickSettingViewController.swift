@@ -121,6 +121,7 @@ class QuickSettingViewController: NSViewController, NSTableViewDataSource, NSTab
   private let aiSubtitleStatusRow = NSStackView()
   private let aiSubtitleFeatureSwitch = NSSwitch()
   private var aiSubtitleAutoModeButtons: [NSButton] = []
+  private var aiSubtitleOnlyWhenMissingCheckboxes: [NSButton] = []
   private let aiSubtitleTargetLanguagePopup = NSPopUpButton()
   private let aiSubtitleSourceLanguageStack = NSStackView()
   private var aiSubtitleSourceLanguageButtons: [NSButton] = []
@@ -456,26 +457,14 @@ class QuickSettingViewController: NSViewController, NSTableViewDataSource, NSTab
       $0.alignment = .right
     }
     let autoModeOptions: [(AISubtitleAutoMode, String, String)] = [
-      (.always,
-       aiSubtitleLocalized("ai_subtitle.auto.always",
-                           fallback: "Generate automatically using default languages"),
+      (.automatic,
+       aiSubtitleLocalized("ai_subtitle.auto_mode", fallback: "Automatic generation"),
        aiSubtitleLocalized("ai_subtitle.auto.always_description",
-                           fallback: "Best for videos usually in the same language. Starts when a video opens.")),
-      (.whenMissing,
-       aiSubtitleLocalized("ai_subtitle.auto.when_missing",
-                           fallback: "Use default languages when subtitles are missing"),
-       aiSubtitleLocalized("ai_subtitle.auto.when_missing_description",
-                           fallback: "Uses existing subtitles first and generates only when none are available.")),
-      (.confirmLanguage,
-       aiSubtitleLocalized("ai_subtitle.auto.confirm_language",
-                           fallback: "Generate after confirming languages"),
-       aiSubtitleLocalized("ai_subtitle.auto.confirm_language_description",
-                           fallback: "Best when switching between video languages. Confirm the audio language to start.")),
+                           fallback: "Uses your default languages when a video opens.")),
       (.manual,
-       aiSubtitleLocalized("ai_subtitle.auto.manual",
-                           fallback: "Generate manually only"),
-       aiSubtitleLocalized("ai_subtitle.auto.manual_description",
-                           fallback: "Best for occasional use. Start AI subtitles only when needed."))
+       aiSubtitleLocalized("ai_subtitle.auto.manual", fallback: "Manual generation"),
+       aiSubtitleLocalized("ai_subtitle.auto.confirm_language_description",
+                           fallback: "Confirm the audio language when a video opens to start generating."))
     ]
     var autoModeOptionViews: [NSView] = []
     aiSubtitleAutoModeButtons = autoModeOptions.map { mode, title, description in
@@ -494,13 +483,25 @@ class QuickSettingViewController: NSViewController, NSTableViewDataSource, NSTab
       descriptionLabel.textColor = .secondaryLabelColor
       descriptionLabel.maximumNumberOfLines = 0
       descriptionLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-      let optionStack = NSStackView(views: [button, descriptionLabel])
+      let checkbox = NSButton(checkboxWithTitle: aiSubtitleLocalized(
+        "ai_subtitle.auto.only_when_missing", fallback: "Generate only when subtitles are missing"
+      ), target: self, action: #selector(aiSubtitleOnlyWhenMissingChanged(_:)))
+      checkbox.tag = mode.rawValue
+      checkbox.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+      if let cell = checkbox.cell as? NSButtonCell {
+        cell.lineBreakMode = .byWordWrapping
+        cell.wraps = true
+      }
+      aiSubtitleOnlyWhenMissingCheckboxes.append(checkbox)
+      let optionStack = NSStackView(views: [button, descriptionLabel, checkbox])
       optionStack.orientation = .vertical
       optionStack.alignment = .leading
       optionStack.spacing = 2
       optionStack.edgeInsets = NSEdgeInsets(top: 0, left: 0, bottom: 2, right: 0)
       descriptionLabel.leadingAnchor.constraint(equalTo: optionStack.leadingAnchor, constant: 22).isActive = true
       descriptionLabel.trailingAnchor.constraint(lessThanOrEqualTo: optionStack.trailingAnchor).isActive = true
+      checkbox.leadingAnchor.constraint(equalTo: descriptionLabel.leadingAnchor).isActive = true
+      checkbox.trailingAnchor.constraint(lessThanOrEqualTo: optionStack.trailingAnchor).isActive = true
       autoModeOptionViews.append(optionStack)
       return button
     }
@@ -696,6 +697,11 @@ class QuickSettingViewController: NSViewController, NSTableViewDataSource, NSTab
     aiSubtitleAutoModeButtons.forEach {
       $0.state = $0.tag == selectedAutoMode.rawValue ? .on : .off
       $0.isEnabled = planReady && featureEnabled
+    }
+    let onlyWhenMissing = AISubtitleGenerationSettings().onlyWhenMissing
+    aiSubtitleOnlyWhenMissingCheckboxes.forEach {
+      $0.state = onlyWhenMissing ? .on : .off
+      $0.isEnabled = planReady && featureEnabled && $0.tag == selectedAutoMode.rawValue
     }
     let hasTargetOptions = aiSubtitleTargetLanguagePopup.itemArray.contains { $0.representedObject is String }
     let hasSourceOptions = !aiSubtitleSourceLanguageButtons.isEmpty
@@ -921,8 +927,16 @@ class QuickSettingViewController: NSViewController, NSTableViewDataSource, NSTab
     updateAISubtitleTab()
   }
 
+  @objc private func aiSubtitleOnlyWhenMissingChanged(_ sender: NSButton) {
+    AISubtitleGenerationSettings().onlyWhenMissing = sender.state == .on
+    updateAISubtitleTab()
+    PlayerCore.playerCores.forEach {
+      NotificationCenter.default.post(name: .iinaAISubtitleStateDidChange, object: $0)
+    }
+  }
+
   @objc private func aiSubtitleAutoModeChanged(_ sender: NSButton) {
-    AISubtitleAutoMode.current = AISubtitleAutoMode(rawValue: sender.tag) ?? .whenMissing
+    AISubtitleAutoMode.current = AISubtitleAutoMode(rawValue: sender.tag) ?? .automatic
     PlayerCore.playerCores.forEach {
       NotificationCenter.default.post(name: .iinaAISubtitleStateDidChange, object: $0)
     }

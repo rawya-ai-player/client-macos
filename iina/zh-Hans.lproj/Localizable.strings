@@ -267,7 +267,7 @@
 "ai_subtitle.generation_settings" = "生成设置";
 "ai_subtitle.auto.always" = "自动按默认语言生成";
 "ai_subtitle.auto.when_missing" = "无字幕时按默认语言生成";
-"ai_subtitle.auto.manual" = "仅手动生成";
+"ai_subtitle.auto.manual" = "手动生成";
 "ai_subtitle.setup_title" = "初始化 AI 字幕";
 "ai_subtitle.setup_message" = "选择本地或远程 AI，并完成一次性初始化。";
 "ai_subtitle.setup_later" = "暂不初始化";
@@ -727,8 +727,10 @@
 "ai_subtitle.auto.confirm_language" = "手动确认语言后生成";
 "ai_subtitle.auto.always_description" = "适合经常观看同一种语言的视频，打开后直接生成。";
 "ai_subtitle.auto.when_missing_description" = "优先使用已有字幕，仅在没有字幕时自动生成。";
-"ai_subtitle.auto.confirm_language_description" = "适合多种语言的视频穿插观看，确认原声语言后生成。";
+"ai_subtitle.auto.confirm_language_description" = "打开视频时确认原声语言，点击确认后开始生成。";
 "ai_subtitle.auto.manual_description" = "适合偶尔使用 AI 字幕，需要时再手动生成。";
 "ai_subtitle.more_languages" = "更多语言…";
 "ai_subtitle.confirm_languages" = "确认语言";
 "ai_subtitle.confirm_and_generate" = "确认并生成";
+"ai_subtitle.auto.only_when_missing" = "仅在没有字幕时生成";
+"ai_subtitle.existing_subtitles_notice" = "当前视频已有字幕，不会自动生成 AI 字幕";

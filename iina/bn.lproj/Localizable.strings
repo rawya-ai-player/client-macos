@@ -565,3 +565,5 @@
 "ai_subtitle.more_languages" = "আরও ভাষা…";
 "ai_subtitle.confirm_languages" = "ভাষা নিশ্চিত করুন";
 "ai_subtitle.confirm_and_generate" = "নিশ্চিত করে তৈরি করুন";
+"ai_subtitle.auto.only_when_missing" = "শুধু সাবটাইটেল না থাকলে তৈরি করুন";
+"ai_subtitle.existing_subtitles_notice" = "এই ভিডিওতে ইতিমধ্যেই সাবটাইটেল আছে। AI সাবটাইটেল স্বয়ংক্রিয়ভাবে তৈরি হবে না।";
